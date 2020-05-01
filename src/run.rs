@@ -386,7 +386,20 @@ where
                 debug!("Applied {} {} times", rw.name(), actually_matched);
             }
 
-            self.check_limits()?
+	    if let Err(a) = self.check_limits() {
+		self.iterations.push(Iteration {
+		    applied,
+		    egraph_nodes,
+		    egraph_classes,
+		    search_time,
+		    apply_time: apply_time.elapsed().as_secs_f64(),
+		    rebuild_time: 0.0,
+		    data: IterData::make(&self),
+		    n_rebuilds: 0,
+		    total_time: start_time.elapsed().as_secs_f64(),
+		});
+		return Err(a);
+	    }
         }
 
         let apply_time = apply_time.elapsed().as_secs_f64();
