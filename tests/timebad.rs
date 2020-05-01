@@ -145,6 +145,8 @@ fn is_not_zero(var: &'static str) -> impl Fn(&mut EGraph, Id, &Subst) -> bool {
     move |egraph, _, subst| !egraph[subst[&var]].nodes.contains(&zero)
 }
 
+
+// Rules taken from Herbie v1.3
 #[rustfmt::skip]
 pub fn rules() -> Vec<Rewrite> { vec![
     rw!("erf-odd";    "(erf (- ?x))"     =>"(- (erf ?x))"),
@@ -377,103 +379,6 @@ rw!("*-commutative";    "(* ?a ?b)"     =>"(* ?b ?a)"),
 
 ]}
 
-egg::test_fn! {
-    #[cfg_attr(feature = "parent-pointers", ignore)]
-    math_associate_adds, [
-        rw!("comm-add"; "(+ ?a ?b)" => "(+ ?b ?a)"),
-        rw!("assoc-add"; "(+ ?a (+ ?b ?c))" => "(+ (+ ?a ?b) ?c)"),
-    ],
-    runner = Runner::new()
-        .with_iter_limit(7)
-        .with_scheduler(SimpleScheduler),
-    "(+ 1 (+ 2 (+ 3 (+ 4 (+ 5 (+ 6 7))))))"
-    =>
-    "(+ 7 (+ 6 (+ 5 (+ 4 (+ 3 (+ 2 1))))))"
-    @check |r: Runner<Math, ()>| assert_eq!(r.egraph.number_of_classes(), 127)
-}
-
-egg::test_fn! {
-    #[should_panic(expected = "Could not prove goal 0")]
-    math_fail, rules(),
-    "(+ x y)" => "(/ x y)"
-}
-
-egg::test_fn! {math_simplify_add, rules(), "(+ x (+ x (+ x x)))" => "(* 4 x)" }
-egg::test_fn! {math_powers, rules(), "(* (pow 2 x) (pow 2 y))" => "(pow 2 (+ x y))"}
-
-egg::test_fn! {
-    #[cfg_attr(feature = "parent-pointers", ignore)]
-    math_simplify_const, rules(),
-    "(+ 1 (- a (* (- 2 1) a)))" => "1"
-}
-
-egg::test_fn! {
-    #[cfg_attr(feature = "parent-pointers", ignore)]
-    math_simplify_root, rules(),
-    runner = Runner::new().with_node_limit(75_000),
-    r#"
-    (/ 1
-       (- (/ (+ 1 (sqrt five))
-             2)
-          (/ (- 1 (sqrt five))
-             2)))"#
-    =>
-    "(/ 1 (sqrt five))"
-}
-
-egg::test_fn! {math_diff_same,      rules(), "(d x x)" => "1"}
-egg::test_fn! {math_diff_different, rules(), "(d x y)" => "0"}
-egg::test_fn! {math_diff_simple1,   rules(), "(d x (+ 1 (* 2 x)))" => "2"}
-egg::test_fn! {math_diff_simple2,   rules(), "(d x (+ 1 (* y x)))" => "y"}
-egg::test_fn! {math_diff_ln,        rules(), "(d x (ln x))" => "(/ 1 x)"}
-
-egg::test_fn! {
-    #[cfg_attr(feature = "parent-pointers", ignore)]
-    diff_power_simple, rules(),
-    "(d x (pow x 3))" => "(* 3 (pow x 2))"
-}
-egg::test_fn! {
-    #[cfg_attr(feature = "parent-pointers", ignore)]
-    diff_power_harder, rules(),
-    runner = Runner::new()
-        .with_iter_limit(50)
-        .with_node_limit(50_000)
-        // HACK this needs to "see" the end expression
-        .with_expr(&"(* x (- (* 3 x) 14))".parse().unwrap()),
-    "(d x (- (pow x 3) (* 7 (pow x 2))))"
-    =>
-    "(* x (- (* 3 x) 14))"
-}
-
-egg::test_fn! {
-    #[cfg_attr(feature = "parent-pointers", ignore)]
-    integ_one, rules(), "(i 1 x)" => "x"
-}
-
-egg::test_fn! {
-    #[cfg_attr(feature = "parent-pointers", ignore)]
-    integ_sin, rules(), "(i (cos x) x)" => "(sin x)"
-}
-
-egg::test_fn! {
-    #[cfg_attr(feature = "parent-pointers", ignore)]
-    integ_x, rules(), "(i (pow x 1) x)" => "(/ (pow x 2) 2)"
-}
-
-egg::test_fn! {
-    #[cfg_attr(feature = "parent-pointers", ignore)]
-    integ_part1, rules(), "(i (* x (cos x)) x)" => "(+ (* x (sin x)) (cos x))"
-}
-
-egg::test_fn! {
-    #[cfg_attr(feature = "parent-pointers", ignore)]
-    integ_part2, rules(), "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
-}
-
-egg::test_fn! {
-    #[cfg_attr(feature = "parent-pointers", ignore)]
-    integ_part3, rules(), "(i (ln x) x)" => "(- (* x (ln x)) x)"
-}
 
 fn write_row(data_file: &mut File, row: &Vec<f64>) {
     write!(data_file, "{},{},{}\n",
