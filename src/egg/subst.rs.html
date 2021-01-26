@@ -113,24 +113,18 @@
 <span id="110">110</span>
 <span id="111">111</span>
 <span id="112">112</span>
-<span id="113">113</span>
-<span id="114">114</span>
-<span id="115">115</span>
-<span id="116">116</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">fmt</span>;
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">str</span>::<span class="ident">FromStr</span>;
 
-<span class="kw">use</span> <span class="kw">crate</span>::{<span class="ident">Id</span>, <span class="ident">Symbol</span>};
+<span class="kw">use</span> <span class="kw">crate</span>::<span class="kw-2">*</span>;
 
 <span class="doccomment">/// A variable for use in [`Pattern`]s or [`Subst`]s.</span>
 <span class="doccomment">///</span>
 <span class="doccomment">/// This implements [`FromStr`], and will only parse if it has a</span>
 <span class="doccomment">/// leading `?`.</span>
 <span class="doccomment">///</span>
-<span class="doccomment">/// [`Pattern`]: struct.Pattern.html</span>
-<span class="doccomment">/// [`Subst`]: struct.Subst.html</span>
-<span class="doccomment">/// [`FromStr`]: https://doc.rust-lang.org/std/str/trait.FromStr.html</span>
+<span class="doccomment">/// [`FromStr`]: std::str::FromStr</span>
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Copy</span>, <span class="ident">Clone</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">PartialOrd</span>, <span class="ident">Ord</span>, <span class="ident">Hash</span>)]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Var</span>(<span class="ident">Symbol</span>);
 
@@ -160,8 +154,6 @@
 
 <span class="doccomment">/// A substitition mapping [`Var`]s to eclass [`Id`]s.</span>
 <span class="doccomment">///</span>
-<span class="doccomment">/// [`Var`]: struct.Var.html</span>
-<span class="doccomment">/// [`Id`]: struct.Id.html</span>
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Default</span>, <span class="ident">Clone</span>, <span class="ident">PartialEq</span>, <span class="ident">Eq</span>, <span class="ident">PartialOrd</span>, <span class="ident">Ord</span>, <span class="ident">Hash</span>)]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Subst</span> {
     <span class="kw">pub</span>(<span class="kw">crate</span>) <span class="ident">vec</span>: <span class="ident">smallvec</span>::<span class="ident">SmallVec</span><span class="op">&lt;</span>[(<span class="ident">Var</span>, <span class="ident">Id</span>); <span class="number">3</span>]<span class="op">&gt;</span>,

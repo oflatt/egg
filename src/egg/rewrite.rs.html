@@ -518,50 +518,11 @@
 <span id="515">515</span>
 <span id="516">516</span>
 <span id="517">517</span>
-<span id="518">518</span>
-<span id="519">519</span>
-<span id="520">520</span>
-<span id="521">521</span>
-<span id="522">522</span>
-<span id="523">523</span>
-<span id="524">524</span>
-<span id="525">525</span>
-<span id="526">526</span>
-<span id="527">527</span>
-<span id="528">528</span>
-<span id="529">529</span>
-<span id="530">530</span>
-<span id="531">531</span>
-<span id="532">532</span>
-<span id="533">533</span>
-<span id="534">534</span>
-<span id="535">535</span>
-<span id="536">536</span>
-<span id="537">537</span>
-<span id="538">538</span>
-<span id="539">539</span>
-<span id="540">540</span>
-<span id="541">541</span>
-<span id="542">542</span>
-<span id="543">543</span>
-<span id="544">544</span>
-<span id="545">545</span>
-<span id="546">546</span>
-<span id="547">547</span>
-<span id="548">548</span>
-<span id="549">549</span>
-<span id="550">550</span>
-<span id="551">551</span>
-<span id="552">552</span>
-<span id="553">553</span>
-<span id="554">554</span>
-<span id="555">555</span>
-<span id="556">556</span>
 </pre><div class="example-wrap"><pre class="rust ">
 <span class="kw">use</span> <span class="ident">std</span>::<span class="ident">fmt</span>;
 <span class="kw">use</span> <span class="ident">std</span>::{<span class="ident">any</span>::<span class="ident">Any</span>, <span class="ident">sync</span>::<span class="ident">Arc</span>};
 
-<span class="kw">use</span> <span class="kw">crate</span>::{<span class="ident">Analysis</span>, <span class="ident">DisplayAsDebug</span>, <span class="ident">EGraph</span>, <span class="ident">Id</span>, <span class="ident">Language</span>, <span class="ident">Pattern</span>, <span class="ident">SearchMatches</span>, <span class="ident">Subst</span>, <span class="ident">Var</span>};
+<span class="kw">use</span> <span class="kw">crate</span>::<span class="kw-2">*</span>;
 
 <span class="doccomment">/// A rewrite that searches for the lefthand side and applies the righthand side.</span>
 <span class="doccomment">///</span>
@@ -572,13 +533,6 @@
 <span class="doccomment">/// It additionally stores a name used to refer to the rewrite and a</span>
 <span class="doccomment">/// long name used for debugging.</span>
 <span class="doccomment">///</span>
-<span class="doccomment">/// [`rewrite!`]: macro.rewrite.html</span>
-<span class="doccomment">/// [`Searcher`]: trait.Searcher.html</span>
-<span class="doccomment">/// [`Applier`]: trait.Applier.html</span>
-<span class="doccomment">/// [`Condition`]: trait.Condition.html</span>
-<span class="doccomment">/// [`ConditionalApplier`]: struct.ConditionalApplier.html</span>
-<span class="doccomment">/// [`Rewrite`]: struct.Rewrite.html</span>
-<span class="doccomment">/// [`Pattern`]: struct.Pattern.html</span>
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>)]</span>
 <span class="attribute">#[<span class="ident">non_exhaustive</span>]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">Rewrite</span><span class="op">&lt;</span><span class="ident">L</span>, <span class="ident">N</span><span class="op">&gt;</span> {
@@ -626,8 +580,6 @@
     <span class="doccomment">/// Create a new [`Rewrite`]. You typically want to use the</span>
     <span class="doccomment">/// [`rewrite!`] macro instead.</span>
     <span class="doccomment">///</span>
-    <span class="doccomment">/// [`Rewrite`]: struct.Rewrite.html</span>
-    <span class="doccomment">/// [`rewrite!`]: macro.rewrite.html</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">new</span>(
         <span class="ident">name</span>: <span class="kw">impl</span> <span class="ident">Into</span><span class="op">&lt;</span><span class="ident">String</span><span class="op">&gt;</span>,
         <span class="ident">searcher</span>: <span class="kw">impl</span> <span class="ident">Searcher</span><span class="op">&lt;</span><span class="ident">L</span>, <span class="ident">N</span><span class="op">&gt;</span> <span class="op">+</span> <span class="lifetime">&#39;static</span>,
@@ -653,16 +605,14 @@
 
     <span class="doccomment">/// Call [`search`] on the [`Searcher`].</span>
     <span class="doccomment">///</span>
-    <span class="doccomment">/// [`Searcher`]: trait.Searcher.html</span>
-    <span class="doccomment">/// [`search`]: trait.Searcher.html#method.search</span>
+    <span class="doccomment">/// [`search`]: Searcher::search()</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">search</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">egraph</span>: <span class="kw-2">&amp;</span><span class="ident">EGraph</span><span class="op">&lt;</span><span class="ident">L</span>, <span class="ident">N</span><span class="op">&gt;</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">SearchMatches</span><span class="op">&gt;</span> {
         <span class="self">self</span>.<span class="ident">searcher</span>.<span class="ident">search</span>(<span class="ident">egraph</span>)
     }
 
     <span class="doccomment">/// Call [`apply_matches`] on the [`Applier`].</span>
     <span class="doccomment">///</span>
-    <span class="doccomment">/// [`Applier`]: trait.Applier.html</span>
-    <span class="doccomment">/// [`apply_matches`]: trait.Applier.html#method.apply_matches</span>
+    <span class="doccomment">/// [`apply_matches`]: Applier::apply_matches()</span>
     <span class="kw">pub</span> <span class="kw">fn</span> <span class="ident">apply</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">egraph</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">EGraph</span><span class="op">&lt;</span><span class="ident">L</span>, <span class="ident">N</span><span class="op">&gt;</span>, <span class="ident">matches</span>: <span class="kw-2">&amp;</span>[<span class="ident">SearchMatches</span>]) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Id</span><span class="op">&gt;</span> {
         <span class="self">self</span>.<span class="ident">applier</span>.<span class="ident">apply_matches</span>(<span class="ident">egraph</span>, <span class="ident">matches</span>)
     }
@@ -697,9 +647,6 @@
 <span class="doccomment">/// matching substititions.</span>
 <span class="doccomment">/// Right now the only significant [`Searcher`] is [`Pattern`].</span>
 <span class="doccomment">///</span>
-<span class="doccomment">/// [`Rewrite`]: struct.Rewrite.html</span>
-<span class="doccomment">/// [`Searcher`]: trait.Searcher.html</span>
-<span class="doccomment">/// [`Pattern`]: struct.Pattern.html</span>
 <span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">Searcher</span><span class="op">&lt;</span><span class="ident">L</span>, <span class="ident">N</span><span class="op">&gt;</span>
 <span class="kw">where</span>
     <span class="ident">L</span>: <span class="ident">Language</span>,
@@ -713,9 +660,7 @@
     <span class="doccomment">/// [`SearchMatches`] where something was found.</span>
     <span class="doccomment">/// This just calls [`search_eclass`] on each eclass.</span>
     <span class="doccomment">///</span>
-    <span class="doccomment">/// [`EGraph`]: struct.EGraph.html</span>
-    <span class="doccomment">/// [`search_eclass`]: trait.Searcher.html#tymethod.search_eclass</span>
-    <span class="doccomment">/// [`SearchMatches`]: struct.SearchMatches.html</span>
+    <span class="doccomment">/// [`search_eclass`]: Searcher::search_eclass</span>
     <span class="kw">fn</span> <span class="ident">search</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">egraph</span>: <span class="kw-2">&amp;</span><span class="ident">EGraph</span><span class="op">&lt;</span><span class="ident">L</span>, <span class="ident">N</span><span class="op">&gt;</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">SearchMatches</span><span class="op">&gt;</span> {
         <span class="ident">egraph</span>
             .<span class="ident">classes</span>()
@@ -825,14 +770,6 @@
 <span class="doccomment">/// let start = &quot;(+ x (* y z))&quot;.parse().unwrap();</span>
 <span class="doccomment">/// Runner::default().with_expr(&amp;start).run(rules);</span>
 <span class="doccomment">/// ```</span>
-<span class="doccomment">/// [`Pattern`]: struct.Pattern.html</span>
-<span class="doccomment">/// [`EClass`]: struct.EClass.html</span>
-<span class="doccomment">/// [`Rewrite`]: struct.Rewrite.html</span>
-<span class="doccomment">/// [`ConditionalApplier`]: struct.ConditionalApplier.html</span>
-<span class="doccomment">/// [`Subst`]: struct.Subst.html</span>
-<span class="doccomment">/// [`Applier`]: trait.Applier.html</span>
-<span class="doccomment">/// [`Condition`]: trait.Condition.html</span>
-<span class="doccomment">/// [`Analysis`]: trait.Analysis.html</span>
 <span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">Applier</span><span class="op">&lt;</span><span class="ident">L</span>, <span class="ident">N</span><span class="op">&gt;</span>
 <span class="kw">where</span>
     <span class="ident">L</span>: <span class="ident">Language</span>,
@@ -848,8 +785,7 @@
     <span class="doccomment">/// The default implementation does this and should suffice for</span>
     <span class="doccomment">/// most use cases.</span>
     <span class="doccomment">///</span>
-    <span class="doccomment">/// [`Id`]: struct.Id.html</span>
-    <span class="doccomment">/// [`apply_one`]: trait.Applier.html#method.apply_one</span>
+    <span class="doccomment">/// [`apply_one`]: Applier::apply_one()</span>
     <span class="kw">fn</span> <span class="ident">apply_matches</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">egraph</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">EGraph</span><span class="op">&lt;</span><span class="ident">L</span>, <span class="ident">N</span><span class="op">&gt;</span>, <span class="ident">matches</span>: <span class="kw-2">&amp;</span>[<span class="ident">SearchMatches</span>]) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Id</span><span class="op">&gt;</span> {
         <span class="kw">let</span> <span class="kw-2">mut</span> <span class="ident">added</span> <span class="op">=</span> <span class="macro">vec</span><span class="macro">!</span>[];
         <span class="kw">for</span> <span class="ident">mat</span> <span class="kw">in</span> <span class="ident">matches</span> {
@@ -882,9 +818,7 @@
     <span class="doccomment">/// This should return a list of [`Id`]s of things you&#39;d like to</span>
     <span class="doccomment">/// be unioned with `eclass`. There can be zero, one, or many.</span>
     <span class="doccomment">///</span>
-    <span class="doccomment">/// [`Applier`]: trait.Applier.html</span>
-    <span class="doccomment">/// [`Id`]: struct.Id.html</span>
-    <span class="doccomment">/// [`apply_matches`]: trait.Applier.html#method.apply_matches</span>
+    <span class="doccomment">/// [`apply_matches`]: Applier::apply_matches()</span>
     <span class="kw">fn</span> <span class="ident">apply_one</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">egraph</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">EGraph</span><span class="op">&lt;</span><span class="ident">L</span>, <span class="ident">N</span><span class="op">&gt;</span>, <span class="ident">eclass</span>: <span class="ident">Id</span>, <span class="ident">subst</span>: <span class="kw-2">&amp;</span><span class="ident">Subst</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">Vec</span><span class="op">&lt;</span><span class="ident">Id</span><span class="op">&gt;</span>;
 
     <span class="doccomment">/// Returns a list of variables that this Applier assumes are bound.</span>
@@ -906,24 +840,18 @@
 <span class="doccomment">///</span>
 <span class="doccomment">/// See the [`rewrite!`] macro documentation for an example.</span>
 <span class="doccomment">///</span>
-<span class="doccomment">/// [`rewrite!`]: macro.rewrite.html</span>
-<span class="doccomment">/// [`Applier`]: trait.Applier.html</span>
-<span class="doccomment">/// [`apply_one`]: trait.Applier.html#method.apply_one</span>
-<span class="doccomment">/// [`Condition`]: trait.Condition.html</span>
-<span class="doccomment">/// [`check`]: trait.Condition.html#method.check</span>
-<span class="doccomment">/// [`ConditionalApplier`]: struct.ConditionalApplier.html</span>
+<span class="doccomment">/// [`apply_one`]: Applier::apply_one()</span>
+<span class="doccomment">/// [`check`]: Condition::check()</span>
 <span class="attribute">#[<span class="ident">derive</span>(<span class="ident">Clone</span>, <span class="ident">Debug</span>)]</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">ConditionalApplier</span><span class="op">&lt;</span><span class="ident">C</span>, <span class="ident">A</span><span class="op">&gt;</span> {
     <span class="doccomment">/// The [`Condition`] to [`check`] before calling [`apply_one`] on</span>
     <span class="doccomment">/// `applier`.</span>
     <span class="doccomment">///</span>
-    <span class="doccomment">/// [`apply_one`]: trait.Applier.html#method.apply_one</span>
-    <span class="doccomment">/// [`Condition`]: trait.Condition.html</span>
-    <span class="doccomment">/// [`check`]: trait.Condition.html#method.check</span>
+    <span class="doccomment">/// [`apply_one`]: Applier::apply_one()</span>
+    <span class="doccomment">/// [`check`]: Condition::check()</span>
     <span class="kw">pub</span> <span class="ident">condition</span>: <span class="ident">C</span>,
     <span class="doccomment">/// The inner [`Applier`] to call once `condition` passes.</span>
     <span class="doccomment">///</span>
-    <span class="doccomment">/// [`Applier`]: trait.Applier.html</span>
     <span class="kw">pub</span> <span class="ident">applier</span>: <span class="ident">A</span>,
 }
 
@@ -956,10 +884,8 @@
 <span class="doccomment">/// Notably, any function ([`Fn`]) that doesn&#39;t mutate other state</span>
 <span class="doccomment">/// and matches the signature of [`check`] implements [`Condition`].</span>
 <span class="doccomment">///</span>
-<span class="doccomment">/// [`check`]: trait.Condition.html#method.check</span>
-<span class="doccomment">/// [`Fn`]: https://doc.rust-lang.org/std/ops/trait.Fn.html</span>
-<span class="doccomment">/// [`ConditionalApplier`]: struct.ConditionalApplier.html</span>
-<span class="doccomment">/// [`Condition`]: trait.Condition.html</span>
+<span class="doccomment">/// [`check`]: Condition::check()</span>
+<span class="doccomment">/// [`Fn`]: std::ops::Fn</span>
 <span class="kw">pub</span> <span class="kw">trait</span> <span class="ident">Condition</span><span class="op">&lt;</span><span class="ident">L</span>, <span class="ident">N</span><span class="op">&gt;</span>
 <span class="kw">where</span>
     <span class="ident">L</span>: <span class="ident">Language</span>,
@@ -970,8 +896,6 @@
     <span class="doccomment">/// `eclass` is the eclass [`Id`] where the match (`subst`) occured.</span>
     <span class="doccomment">/// If this is true, then the [`ConditionalApplier`] will fire.</span>
     <span class="doccomment">///</span>
-    <span class="doccomment">/// [`Id`]: struct.Id.html</span>
-    <span class="doccomment">/// [`ConditionalApplier`]: struct.ConditionalApplier.html</span>
     <span class="kw">fn</span> <span class="ident">check</span>(<span class="kw-2">&amp;</span><span class="self">self</span>, <span class="ident">egraph</span>: <span class="kw-2">&amp;</span><span class="kw-2">mut</span> <span class="ident">EGraph</span><span class="op">&lt;</span><span class="ident">L</span>, <span class="ident">N</span><span class="op">&gt;</span>, <span class="ident">eclass</span>: <span class="ident">Id</span>, <span class="ident">subst</span>: <span class="kw-2">&amp;</span><span class="ident">Subst</span>) <span class="op">-</span><span class="op">&gt;</span> <span class="ident">bool</span>;
 
     <span class="doccomment">/// Returns a list of variables that this Condition assumes are bound.</span>
@@ -1001,8 +925,6 @@
 <span class="doccomment">/// This condition adds its two [`Applier`]s to the egraph and passes</span>
 <span class="doccomment">/// if and only if they are equivalent (in the same eclass).</span>
 <span class="doccomment">///</span>
-<span class="doccomment">/// [`Applier`]: trait.Applier.html</span>
-<span class="doccomment">/// [`Condition`]: trait.Condition.html</span>
 <span class="kw">pub</span> <span class="kw">struct</span> <span class="ident">ConditionEqual</span><span class="op">&lt;</span><span class="ident">A1</span>, <span class="ident">A2</span><span class="op">&gt;</span>(<span class="kw">pub</span> <span class="ident">A1</span>, <span class="kw">pub</span> <span class="ident">A2</span>);
 
 <span class="kw">impl</span><span class="op">&lt;</span><span class="ident">L</span>: <span class="ident">Language</span><span class="op">&gt;</span> <span class="ident">ConditionEqual</span><span class="op">&lt;</span><span class="ident">Pattern</span><span class="op">&lt;</span><span class="ident">L</span><span class="op">&gt;</span>, <span class="ident">Pattern</span><span class="op">&lt;</span><span class="ident">L</span><span class="op">&gt;</span><span class="op">&gt;</span> {
