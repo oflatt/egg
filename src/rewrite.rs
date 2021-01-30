@@ -85,14 +85,14 @@ impl<L: Language, N: Analysis<L>> Rewrite<L, N> {
     /// Call [`search`] on the [`Searcher`].
     ///
     /// [`search`]: Searcher::search()
-    pub fn search(&self, egraph: &EGraph<L, N>) -> Vec<SearchMatches> {
+    pub fn search(&self, egraph: &EGraph<L, N>) -> Vec<SearchMatches<L>> {
         self.searcher.search(egraph)
     }
 
     /// Call [`apply_matches`] on the [`Applier`].
     ///
     /// [`apply_matches`]: Applier::apply_matches()
-    pub fn apply(&self, egraph: &mut EGraph<L, N>, matches: &[SearchMatches]) -> Vec<Id> {
+    pub fn apply(&self, egraph: &mut EGraph<L, N>, matches: &[SearchMatches<L>]) -> Applications {
         self.applier.apply_matches(egraph, matches)
     }
 
@@ -133,14 +133,14 @@ where
 {
     /// Search one eclass, returning None if no matches can be found.
     /// This should not return a SearchMatches with no substs.
-    fn search_eclass(&self, egraph: &EGraph<L, N>, eclass: Id) -> Option<SearchMatches>;
+    fn search_eclass(&self, egraph: &EGraph<L, N>, eclass: Id) -> Option<SearchMatches<L>>;
 
     /// Search the whole [`EGraph`], returning a list of all the
     /// [`SearchMatches`] where something was found.
     /// This just calls [`search_eclass`] on each eclass.
     ///
     /// [`search_eclass`]: Searcher::search_eclass
-    fn search(&self, egraph: &EGraph<L, N>) -> Vec<SearchMatches> {
+    fn search(&self, egraph: &EGraph<L, N>) -> Vec<SearchMatches<L>> {
         egraph
             .classes()
             .filter_map(|e| self.search_eclass(egraph, e.id))
@@ -265,7 +265,7 @@ where
     /// most use cases.
     ///
     /// [`apply_one`]: Applier::apply_one()
-    fn apply_matches(&self, egraph: &mut EGraph<L, N>, matches: &[SearchMatches]) -> Vec<Id> {
+    fn apply_matches(&self, egraph: &mut EGraph<L, N>, matches: &[SearchMatches<L>]) -> Applications {
         let mut added = vec![];
         for mat in matches {
             for subst in &mat.substs {
@@ -298,7 +298,7 @@ where
     /// be unioned with `eclass`. There can be zero, one, or many.
     ///
     /// [`apply_matches`]: Applier::apply_matches()
-    fn apply_one(&self, egraph: &mut EGraph<L, N>, eclass: Id, subst: &Subst) -> Vec<Id>;
+    fn apply_one(&self, egraph: &mut EGraph<L, N>, eclass: Id, subst: &Subst) -> Applications;
 
     /// Returns a list of variables that this Applier assumes are bound.
     ///

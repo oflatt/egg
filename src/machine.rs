@@ -80,12 +80,13 @@ impl Machine {
         egraph: &EGraph<L, N>,
         instructions: &[Instruction<L>],
         subst: &Subst,
-        yield_fn: &mut impl FnMut(&Self, &Subst),
+        yield_fn: &mut impl FnMut(&Self, &Subst, L),
     ) where
         L: Language,
         N: Analysis<L>,
     {
         let mut instructions = instructions.iter();
+        let mut found_node: Option<L> = None;
         while let Some(instruction) = instructions.next() {
             match instruction {
                 Instruction::Bind { i, out, node } => {
@@ -93,6 +94,9 @@ impl Machine {
                     return for_each_matching_node(&egraph[self.reg(*i)], node, |matched| {
                         self.reg.truncate(out.0 as usize);
                         matched.for_each(|id| self.reg.push(id));
+                        if found_node == None {
+                            found_node = Some(matched.clone());
+                        }
                         self.run(egraph, remaining_instructions, subst, yield_fn)
                     });
                 }
@@ -104,7 +108,7 @@ impl Machine {
             }
         }
 
-        yield_fn(self, subst)
+        yield_fn(self, subst, found_node.unwrap())
     }
 }
 
@@ -211,7 +215,7 @@ impl<L: Language> Program<L> {
         program
     }
 
-    pub fn run<A>(&self, egraph: &EGraph<L, A>, eclass: Id) -> Vec<Subst>
+    pub fn run<A>(&self, egraph: &EGraph<L, A>, eclass: Id) -> (Vec<Subst>, Vec<L>)
     where
         A: Analysis<L>,
     {
@@ -221,22 +225,24 @@ impl<L: Language> Program<L> {
         machine.reg.push(eclass);
 
         let mut substs = Vec::new();
+        let mut found_nodes = Vec::new();
         machine.run(
             egraph,
             &self.instructions,
             &self.subst,
-            &mut |machine, subst| {
+            &mut |machine, subst, found_node| {
                 let subst_vec = subst
                     .vec
                     .iter()
                     // HACK we are reusing Ids here, this is bad
                     .map(|(v, reg_id)| (*v, machine.reg(Reg(usize::from(*reg_id) as u32))))
                     .collect();
-                substs.push(Subst { vec: subst_vec })
+                substs.push(Subst { vec: subst_vec });
+                found_nodes.push(found_node)
             },
         );
 
         log::trace!("Ran program, found {:?}", substs);
-        substs
+        (substs, found_nodes)
     }
 }
