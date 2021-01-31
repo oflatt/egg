@@ -565,7 +565,7 @@ where
         rewrite: &Rewrite<L, N>,
         matches: Vec<SearchMatches<L>>,
     ) -> usize {
-        rewrite.apply(egraph, &matches).len()
+        rewrite.apply(egraph, &matches).affected_classes.len()
     }
 }
 

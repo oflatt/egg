@@ -92,7 +92,11 @@ impl<L: Language, N: Analysis<L>> Rewrite<L, N> {
     /// Call [`apply_matches`] on the [`Applier`].
     ///
     /// [`apply_matches`]: Applier::apply_matches()
-    pub fn apply(&self, egraph: &mut EGraph<L, N>, matches: &[SearchMatches<L>]) -> Applications {
+    pub fn apply(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        matches: &[SearchMatches<L>],
+    ) -> Applications<L> {
         self.applier.apply_matches(egraph, matches)
     }
 
@@ -265,25 +269,32 @@ where
     /// most use cases.
     ///
     /// [`apply_one`]: Applier::apply_one()
-    fn apply_matches(&self, egraph: &mut EGraph<L, N>, matches: &[SearchMatches<L>]) -> Applications {
-        let mut added = vec![];
+    fn apply_matches(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        matches: &[SearchMatches<L>],
+    ) -> Applications<L> {
+        let mut affected_classes = vec![];
+        let mut from_nodes = vec![];
+        let mut to_nodes = vec![];
         for mat in matches {
-            for subst in &mat.substs {
-                let ids = self
-                    .apply_one(egraph, mat.eclass, subst)
-                    .into_iter()
-                    .filter_map(|id| {
-                        let (to, did_something) = egraph.union(id, mat.eclass);
-                        if did_something {
-                            Some(to)
-                        } else {
-                            None
-                        }
-                    });
-                added.extend(ids)
+            for (subst, top_node) in mat.substs.iter().zip(&mat.enodes) {
+                let applied = self.apply_one(egraph, mat.eclass, subst, top_node.clone());
+                for i in 0..applied.affected_classes.len() {
+                    let (to, did_something) = egraph.union(applied.affected_classes[i], mat.eclass);
+                    if did_something {
+                        affected_classes.push(to);
+                        from_nodes.push(applied.from_nodes[i].clone());
+                        to_nodes.push(applied.to_nodes[i].clone());
+                    }
+                }
             }
         }
-        added
+        Applications {
+            from_nodes,
+            affected_classes,
+            to_nodes,
+        }
     }
 
     /// Apply a single substitition.
@@ -298,7 +309,13 @@ where
     /// be unioned with `eclass`. There can be zero, one, or many.
     ///
     /// [`apply_matches`]: Applier::apply_matches()
-    fn apply_one(&self, egraph: &mut EGraph<L, N>, eclass: Id, subst: &Subst) -> Applications;
+    fn apply_one(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        eclass: Id,
+        subst: &Subst,
+        top_node: L,
+    ) -> Applications<L>;
 
     /// Returns a list of variables that this Applier assumes are bound.
     ///
@@ -341,11 +358,17 @@ where
     A: Applier<L, N>,
     N: Analysis<L>,
 {
-    fn apply_one(&self, egraph: &mut EGraph<L, N>, eclass: Id, subst: &Subst) -> Vec<Id> {
-        if self.condition.check(egraph, eclass, subst) {
-            self.applier.apply_one(egraph, eclass, subst)
+    fn apply_one(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        eclass: Id,
+        subst: &Subst,
+        top_node: L,
+    ) -> Applications<L> {
+        if self.condition.check(egraph, eclass, subst, top_node.clone()) {
+            self.applier.apply_one(egraph, eclass, subst, top_node)
         } else {
-            vec![]
+            Applications { affected_classes: vec![], from_nodes: vec![], to_nodes: vec![] }
         }
     }
 
@@ -375,7 +398,7 @@ where
     /// `eclass` is the eclass [`Id`] where the match (`subst`) occured.
     /// If this is true, then the [`ConditionalApplier`] will fire.
     ///
-    fn check(&self, egraph: &mut EGraph<L, N>, eclass: Id, subst: &Subst) -> bool;
+    fn check(&self, egraph: &mut EGraph<L, N>, eclass: Id, subst: &Subst, top_node: L) -> bool;
 
     /// Returns a list of variables that this Condition assumes are bound.
     ///
@@ -394,7 +417,7 @@ where
     N: Analysis<L>,
     F: Fn(&mut EGraph<L, N>, Id, &Subst) -> bool,
 {
-    fn check(&self, egraph: &mut EGraph<L, N>, eclass: Id, subst: &Subst) -> bool {
+    fn check(&self, egraph: &mut EGraph<L, N>, eclass: Id, subst: &Subst, top_node: L) -> bool {
         self(egraph, eclass, subst)
     }
 }
@@ -422,12 +445,12 @@ where
     A1: Applier<L, N>,
     A2: Applier<L, N>,
 {
-    fn check(&self, egraph: &mut EGraph<L, N>, eclass: Id, subst: &Subst) -> bool {
-        let a1 = self.0.apply_one(egraph, eclass, subst);
-        let a2 = self.1.apply_one(egraph, eclass, subst);
-        assert_eq!(a1.len(), 1);
-        assert_eq!(a2.len(), 1);
-        a1[0] == a2[0]
+    fn check(&self, egraph: &mut EGraph<L, N>, eclass: Id, subst: &Subst, top_node: L) -> bool {
+        let a1 = self.0.apply_one(egraph, eclass, subst, top_node.clone());
+        let a2 = self.1.apply_one(egraph, eclass, subst, top_node);
+        assert_eq!(a1.affected_classes.len(), 1);
+        assert_eq!(a2.affected_classes.len(), 1);
+        a1.affected_classes[0] == a2.affected_classes[0]
     }
 
     fn vars(&self) -> Vec<Var> {
@@ -496,13 +519,23 @@ mod tests {
         #[derive(Debug)]
         struct Appender;
         impl Applier<SymbolLang, ()> for Appender {
-            fn apply_one(&self, egraph: &mut EGraph, _eclass: Id, subst: &Subst) -> Vec<Id> {
+            fn apply_one(
+                &self,
+                egraph: &mut EGraph,
+                _eclass: Id,
+                subst: &Subst,
+                top_node: SymbolLang,
+            ) -> Applications<L> {
                 let a: Var = "?a".parse().unwrap();
                 let b: Var = "?b".parse().unwrap();
                 let a = get(&egraph, subst[a]);
                 let b = get(&egraph, subst[b]);
                 let s = format!("{}{}", a, b);
-                vec![egraph.add(S::leaf(&s))]
+                Applications {
+                    from_nodes: vec![top_node.clone()],
+                    affected_classes: vec![egraph.add(S::leaf(&s))],
+                    to_nodes: vec![top_node],
+                } // bogus
             }
         }
 

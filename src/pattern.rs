@@ -228,7 +228,11 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
         if substs.is_empty() {
             None
         } else {
-            Some(SearchMatches::<L> { eclass, substs, enodes })
+            Some(SearchMatches::<L> {
+                eclass,
+                substs,
+                enodes,
+            })
         }
     }
 
@@ -237,10 +241,11 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
     }
 }
 
-pub struct Applications {
-    from_nodes: Vec<L>,
-    affected_classes: Vec<Id>,
-    to_nodes: Vec<L>,
+#[derive(Debug, PartialEq, Clone)]
+pub struct Applications<L> {
+    pub from_nodes: Vec<L>,
+    pub affected_classes: Vec<Id>,
+    pub to_nodes: Vec<L>,
 }
 
 impl<L, A> Applier<L, A> for Pattern<L>
@@ -248,25 +253,39 @@ where
     L: Language,
     A: Analysis<L>,
 {
-    fn apply_one(&self, egraph: &mut EGraph<L, A>, _: Id, subst: &Subst, top_node: L) -> Applications {
+    fn apply_one(
+        &self,
+        egraph: &mut EGraph<L, A>,
+        _: Id,
+        subst: &Subst,
+        top_node: L,
+    ) -> Applications<L> {
         let ast = self.ast.as_ref();
         let mut id_buf = vec![0.into(); ast.len()];
         let (id, top_enode) = apply_pat(&mut id_buf, ast, egraph, subst);
-        Applications { from_nodes: vec![top_node], affected_classes: vec![id], to_nodes: vec![top_enode] }
+        Applications {
+            from_nodes: vec![top_node],
+            affected_classes: vec![id],
+            to_nodes: vec![top_enode],
+        }
     }
 
     fn vars(&self) -> Vec<Var> {
         Pattern::vars(self)
     }
 
-    fn apply_matches(&self, egraph: &mut EGraph<L, A>, matches: &[SearchMatches<L>]) -> Applications {
+    fn apply_matches(
+        &self,
+        egraph: &mut EGraph<L, A>,
+        matches: &[SearchMatches<L>],
+    ) -> Applications<L> {
         let mut affected_classes = vec![];
         let mut from_nodes = vec![];
         let mut to_nodes = vec![];
         let ast = self.ast.as_ref();
         let mut id_buf = vec![0.into(); ast.len()];
         for mat in matches {
-            for (subst, from_enode) in &mat.substs.zip(&mat.enodes) {
+            for (subst, from_enode) in mat.substs.iter().zip(&mat.enodes) {
                 let (id, top_enode) = apply_pat(&mut id_buf, ast, egraph, subst);
                 let (to, did_something) = egraph.union(id, mat.eclass);
                 if did_something {
@@ -276,7 +295,11 @@ where
                 }
             }
         }
-        Applications {from_nodes, affected_classes, to_nodes}
+        Applications {
+            from_nodes,
+            affected_classes,
+            to_nodes,
+        }
     }
 }
 
@@ -300,7 +323,11 @@ fn apply_pat<L: Language, A: Analysis<L>>(
         };
         ids[i] = id;
     }
-    let top_enode = pat.last().clone().map_children(|child| ids[usize::from(child)]);
+
+    let top_enode = match pat.last().unwrap().clone() {
+        ENodeOrVar::ENode(e) => e.map_children(|child| ids[usize::from(child)]),
+        _ => panic!("Can't have a pattern with just a variable for now"),
+    };
 
     (*ids.last().unwrap(), top_enode)
 }
