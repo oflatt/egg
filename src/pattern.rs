@@ -246,6 +246,7 @@ pub struct Applications<L> {
     pub from_nodes: Vec<L>,
     pub affected_classes: Vec<Id>,
     pub to_nodes: Vec<L>,
+    pub substs: Vec<Subst>,
 }
 
 impl<L, A> Applier<L, A> for Pattern<L>
@@ -267,6 +268,7 @@ where
             from_nodes: vec![top_node],
             affected_classes: vec![id],
             to_nodes: vec![top_enode],
+            substs: vec![subst.clone()],
         }
     }
 
@@ -282,6 +284,7 @@ where
         let mut affected_classes = vec![];
         let mut from_nodes = vec![];
         let mut to_nodes = vec![];
+        let mut substs = vec![];
         let ast = self.ast.as_ref();
         let mut id_buf = vec![0.into(); ast.len()];
         for mat in matches {
@@ -292,6 +295,7 @@ where
                     affected_classes.push(to);
                     from_nodes.push(from_enode.clone());
                     to_nodes.push(top_enode.clone());
+                    substs.push(subst.clone());
                 }
             }
         }
@@ -299,6 +303,7 @@ where
             from_nodes,
             affected_classes,
             to_nodes,
+            substs,
         }
     }
 }
