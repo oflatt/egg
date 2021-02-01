@@ -1,5 +1,5 @@
 use crate::util::{HashMap};
-use crate::{EClass, Id, Language, Subst, Applications
+use crate::{Language, Subst, Applications, EGraph, Analysis
 };
 
 struct RewriteConnection<L: Language> {
@@ -42,5 +42,9 @@ impl<L: Language> History<L> {
         self.graph.insert(to, vec![tor]);
       }
     }
+  }
+
+  pub(crate) fn rebuild<N: Analysis<L>>(&mut self, egraph: &EGraph::<L, N>) {
+
   }
 }

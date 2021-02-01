@@ -371,7 +371,7 @@ mod tests {
 
         let applications = commute_plus.apply(&mut egraph, &matches);
         egraph.rebuild();
-        assert_eq!(applications.len(), 2);
+        assert_eq!(applications.affected_classes.len(), 2);
 
         let actual_substs: Vec<Subst> = matches.iter().flat_map(|m| m.substs.clone()).collect();
 

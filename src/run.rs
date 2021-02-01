@@ -350,6 +350,8 @@ where
             }
         }
 
+        self.history.rebuild::<N>(&self.egraph);
+
         assert!(!self.iterations.is_empty());
         assert!(self.stop_reason.is_some());
         self

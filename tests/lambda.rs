@@ -155,7 +155,7 @@ struct CaptureAvoid {
 }
 
 impl Applier<Lambda, LambdaAnalysis> for CaptureAvoid {
-    fn apply_one(&self, egraph: &mut EGraph, eclass: Id, subst: &Subst) -> Vec<Id> {
+    fn apply_one(&self, egraph: &mut EGraph, eclass: Id, subst: &Subst, top_node: Lambda) -> Applications<Lambda> {
         let e = subst[self.e];
         let v2 = subst[self.v2];
         let v2_free_in_e = egraph[e].data.free.contains(&v2);
@@ -163,9 +163,9 @@ impl Applier<Lambda, LambdaAnalysis> for CaptureAvoid {
             let mut subst = subst.clone();
             let sym = Lambda::Symbol(format!("_{}", eclass).into());
             subst.insert(self.fresh, egraph.add(sym));
-            self.if_free.apply_one(egraph, eclass, &subst)
+            self.if_free.apply_one(egraph, eclass, &subst, top_node)
         } else {
-            self.if_not_free.apply_one(egraph, eclass, &subst)
+            self.if_not_free.apply_one(egraph, eclass, &subst, top_node)
         }
     }
 }

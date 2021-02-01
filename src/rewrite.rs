@@ -109,18 +109,18 @@ impl<L: Language, N: Analysis<L>> Rewrite<L, N> {
         let matches = self.search(egraph);
         log::debug!("Found rewrite {} {} times", self.name, matches.len());
 
-        let ids = self.apply(egraph, &matches);
+        let applications = self.apply(egraph, &matches);
         let elapsed = start.elapsed();
         log::debug!(
             "Applied rewrite {} {} times in {}.{:03}",
             self.name,
-            ids.len(),
+            applications.affected_classes.len(),
             elapsed.as_secs(),
             elapsed.subsec_millis()
         );
 
         egraph.rebuild();
-        ids
+        applications.affected_classes
     }
 }
 
@@ -536,7 +536,7 @@ mod tests {
                 _eclass: Id,
                 subst: &Subst,
                 top_node: SymbolLang,
-            ) -> Applications<L> {
+            ) -> Applications<SymbolLang> {
                 let a: Var = "?a".parse().unwrap();
                 let b: Var = "?b".parse().unwrap();
                 let a = get(&egraph, subst[a]);
@@ -546,7 +546,7 @@ mod tests {
                     from_nodes: vec![top_node.clone()],
                     affected_classes: vec![egraph.add(S::leaf(&s))],
                     to_nodes: vec![top_node],
-                    subts: vec![subst.clone()],
+                    substs: vec![subst.clone()],
                 } // bogus
             }
         }
