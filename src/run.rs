@@ -158,6 +158,8 @@ pub struct Runner<L: Language, N: Analysis<L>, IterData = ()> {
 
     start_time: Option<Instant>,
     scheduler: Box<dyn RewriteScheduler<L, N>>,
+
+    history: History<L>,
 }
 
 impl<L, N> Default for Runner<L, N, ()>
@@ -250,6 +252,8 @@ where
 
             start_time: None,
             scheduler: Box::new(BackoffScheduler::default()),
+
+            history: History::default(),
         }
     }
 
@@ -420,11 +424,13 @@ where
 
         let mut applied = IndexMap::new();
         result = result.and_then(|_| {
+            let mut counter = 0;
             rules.iter().zip(matches).try_for_each(|(rw, ms)| {
                 let total_matches: usize = ms.iter().map(|m| m.substs.len()).sum();
                 debug!("Applying {} {} times", rw.name(), total_matches);
 
-                let actually_matched = self.scheduler.apply_rewrite(i, &mut self.egraph, rw, ms);
+                let applications = self.scheduler.apply_rewrite(i, &mut self.egraph, rw, ms);
+                let actually_matched = applications.affected_classes.len();
                 if actually_matched > 0 {
                     if let Some(count) = applied.get_mut(rw.name()) {
                         *count += actually_matched;
@@ -433,6 +439,8 @@ where
                     }
                     debug!("Applied {} {} times", rw.name(), actually_matched);
                 }
+                self.history.add_applications(applications, counter);
+                counter += 1;
                 self.check_limits()
             })
         });
@@ -564,8 +572,8 @@ where
         egraph: &mut EGraph<L, N>,
         rewrite: &Rewrite<L, N>,
         matches: Vec<SearchMatches<L>>,
-    ) -> usize {
-        rewrite.apply(egraph, &matches).affected_classes.len()
+    ) -> Applications<L> {
+        rewrite.apply(egraph, &matches)
     }
 }
 
