@@ -111,8 +111,14 @@ impl Machine {
         }
 
         // if topenode is none, then we must have matched a variable on the LHS
+        // in this case just pick a representative
+        // this is going to break if we have an (a => a) rule
+        let top = topenode.clone().unwrap_or_else(|| {
+            let eclass = self.reg(Reg(usize::from(subst.vec[0].1) as u32));
+            &egraph[eclass].nodes[0]
+        }).clone();
 
-        yield_fn(self, subst, topenode.clone().unwrap().clone())
+        yield_fn(self, subst, top.clone())
     }
 }
 

@@ -142,9 +142,8 @@ pub fn rules() -> Vec<Rewrite> { vec![
     rw!("zero-mul"; "(* ?a 0)" => "0"),
     rw!("one-mul";  "(* ?a 1)" => "?a"),
 
-    // proof generation needs to support these
-    //rw!("add-zero"; "?a" => "(+ ?a 0)"),
-    //rw!("mul-one";  "?a" => "(* ?a 1)"),
+    rw!("add-zero"; "?a" => "(+ ?a 0)"),
+    rw!("mul-one";  "?a" => "(* ?a 1)"),
 
     rw!("cancel-sub"; "(- ?a ?a)" => "0"),
     rw!("cancel-div"; "(/ ?a ?a)" => "1" if is_not_zero("?a")),
