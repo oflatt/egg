@@ -2,6 +2,7 @@ use crate::util::{HashMap};
 use crate::{Language, Subst, Applications, EGraph, Analysis
 };
 
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct RewriteConnection<L: Language> {
   node: L,
   rule_index: usize,
@@ -45,6 +46,22 @@ impl<L: Language> History<L> {
   }
 
   pub(crate) fn rebuild<N: Analysis<L>>(&mut self, egraph: &EGraph::<L, N>) {
+    let mut newgraph = HashMap::<L, Vec<RewriteConnection<L>>>::default();
+    for (node, connections) in self.graph.iter_mut() {
+      let newkey = node.clone().map_children(|child| egraph.find(child));
+      connections.iter_mut().for_each(|connection| {
+        connection.node.update_children(|child| egraph.find(child));
+      });
+      if let Some(v) = newgraph.get_mut(&newkey) {
+        v.extend(connections.clone());
+      } else {
+        newgraph.insert(newkey, connections.clone());
+      }
+    }
 
+    for (_node, connections) in newgraph.iter_mut() {
+      connections.sort_unstable();
+      connections.dedup();
+    }
   }
 }

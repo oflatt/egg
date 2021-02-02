@@ -331,7 +331,8 @@ fn apply_pat<L: Language, A: Analysis<L>>(
 
     let top_enode = match pat.last().unwrap().clone() {
         ENodeOrVar::ENode(e) => e.map_children(|child| ids[usize::from(child)]),
-        _ => panic!("Can't have a pattern with just a variable for now"),
+        // if we match a var on the right, pick some enode as a representative
+        ENodeOrVar::Var(e) => egraph[ids[0]].nodes[0].clone(),
     };
 
     (*ids.last().unwrap(), top_enode)

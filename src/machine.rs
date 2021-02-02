@@ -80,13 +80,13 @@ impl Machine {
         egraph: &EGraph<L, N>,
         instructions: &[Instruction<L>],
         subst: &Subst,
+        topenode: &Option<&L>,
         yield_fn: &mut impl FnMut(&Self, &Subst, L),
     ) where
         L: Language,
         N: Analysis<L>,
     {
         let mut instructions = instructions.iter();
-        let mut found_node: Option<L> = None;
         while let Some(instruction) = instructions.next() {
             match instruction {
                 Instruction::Bind { i, out, node } => {
@@ -94,10 +94,12 @@ impl Machine {
                     return for_each_matching_node(&egraph[self.reg(*i)], node, |matched| {
                         self.reg.truncate(out.0 as usize);
                         matched.for_each(|id| self.reg.push(id));
-                        if found_node == None {
-                            found_node = Some(matched.clone());
+                        if topenode == &None {
+                            self.run(egraph, remaining_instructions, subst, &Some(matched), yield_fn)
+                        } else {
+                            self.run(egraph, remaining_instructions, subst, topenode, yield_fn)
                         }
-                        self.run(egraph, remaining_instructions, subst, yield_fn)
+                        
                     });
                 }
                 Instruction::Compare { i, j } => {
@@ -108,7 +110,9 @@ impl Machine {
             }
         }
 
-        yield_fn(self, subst, found_node.unwrap())
+        // if topenode is none, then we must have matched a variable on the LHS
+
+        yield_fn(self, subst, topenode.clone().unwrap().clone())
     }
 }
 
@@ -230,6 +234,7 @@ impl<L: Language> Program<L> {
             egraph,
             &self.instructions,
             &self.subst,
+            &None,
             &mut |machine, subst, found_node| {
                 let subst_vec = subst
                     .vec
