@@ -1,95 +1,177 @@
+use crate::util::HashMap;
+use std::collections::VecDeque;
+use crate::{Analysis, Applications, EGraph, Language, RecExpr, Subst};
 use std::rc::Rc;
-use crate::util::{HashMap};
-use crate::{Language, Subst, Applications, EGraph, Analysis, RecExpr
-};
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 struct RewriteConnection<L: Language> {
-  node: L,
-  rule_index: usize,
-  subst: Subst,
-  isdirectionforward: bool,
+    node: L,
+    rule_index: usize,
+    subst: Subst,
+    isdirectionforward: bool,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct GraphExpr<L: Language> {
-  node: Option<L>, // sometimes we have a hole
-  children: Vec<Rc<GraphExpr<L>>>,
+pub struct GraphExpr<L: Language> {
+    node: Option<L>, // sometimes we have a hole
+    children: Vec<Rc<GraphExpr<L>>>,
+    rule_index: usize,
+    isdirectionforward: bool,
 }
 
 impl<L: Language> GraphExpr<L> {
-  pub(crate) fn from_recexpr<N: Analysis<L>>(egraph: &mut EGraph::<L, N>, expr: &RecExpr<L>) -> Self {
-    let nodes = expr.as_ref();
-    let mut graphexprs: Vec<Rc<GraphExpr<L>>> = Vec::with_capacity(nodes.len());
-    let mut new_ids = Vec::with_capacity(nodes.len());
-    for node in nodes {
-      let mut children: Vec<Rc<GraphExpr<L>>> = vec![];
-      node.for_each(|i| children.push(graphexprs[usize::from(i)].clone()));
-      let graphnode = node.clone().map_children(|i| new_ids[usize::from(i)]);
-      
-      let expr = Rc::new(GraphExpr { node: Some(node.clone()),
-                                     children: children });
-      graphexprs.push(expr);
-      new_ids.push(egraph.add(graphnode));
+    pub(crate) fn from_recexpr<N: Analysis<L>>(
+        egraph: &mut EGraph<L, N>,
+        expr: &RecExpr<L>,
+    ) -> Self {
+        let nodes = expr.as_ref();
+        let mut graphexprs: Vec<Rc<GraphExpr<L>>> = Vec::with_capacity(nodes.len());
+        let mut new_ids = Vec::with_capacity(nodes.len());
+        for node in nodes {
+            let mut children: Vec<Rc<GraphExpr<L>>> = vec![];
+            node.for_each(|i| children.push(graphexprs[usize::from(i)].clone()));
+            let graphnode = node.clone().map_children(|i| new_ids[usize::from(i)]);
+
+            let expr = Rc::new(GraphExpr {
+                node: Some(node.clone()),
+                children: children,
+                rule_index: 0, // dummy value
+                isdirectionforward: true,
+            });
+            graphexprs.push(expr);
+            new_ids.push(egraph.add(graphnode));
+        }
+        // unwrap last graphexpr, the top node
+        Rc::try_unwrap(graphexprs.pop().unwrap()).unwrap()
     }
-    // unwrap last graphexpr, the top node
-    Rc::try_unwrap(graphexprs.pop().unwrap()).unwrap()
-  }
 }
 
-
 pub struct History<L: Language> {
+    // actually a set of trees, since each newenode is unioned only once with another enode
     graph: HashMap<L, Vec<RewriteConnection<L>>>,
 }
 
 impl<L: Language> Default for History<L> {
-  fn default() -> Self {
-    History::<L> {
-      graph: Default::default(),
+    fn default() -> Self {
+        History::<L> {
+            graph: Default::default(),
+        }
     }
-  }
 }
 
 impl<L: Language> History<L> {
-  pub(crate) fn add_applications(&mut self, applications: Applications<L>, rule: usize) {
-    for (from, to, subst) in izip!(applications.from_nodes, applications.to_nodes, applications.substs)  {
-      let currentfrom = self.graph.get_mut(&from);
-      let fromr = RewriteConnection { node: to.clone(), rule_index: rule, subst: subst.clone(), isdirectionforward: true};
+    pub(crate) fn add_applications(&mut self, applications: Applications<L>, rule: usize) {
+        for (from, to, subst) in izip!(
+            applications.from_nodes,
+            applications.to_nodes,
+            applications.substs
+        ) {
+            let currentfrom = self.graph.get_mut(&from);
+            let fromr = RewriteConnection {
+                node: to.clone(),
+                rule_index: rule,
+                subst: subst.clone(),
+                isdirectionforward: true,
+            };
+
+            if let Some(v) = currentfrom {
+                v.push(fromr);
+            } else {
+                self.graph.insert(from.clone(), vec![fromr]);
+            }
+
+            let currentto = self.graph.get_mut(&to);
+            let tor = RewriteConnection {
+                node: from,
+                rule_index: rule,
+                subst: subst,
+                isdirectionforward: false,
+            };
+
+            if let Some(v) = currentto {
+                v.push(tor);
+            } else {
+                self.graph.insert(to, vec![tor]);
+            }
+        }
+    }
+
+    pub(crate) fn rebuild<N: Analysis<L>>(&mut self, egraph: &EGraph<L, N>) {
+        let mut newgraph = HashMap::<L, Vec<RewriteConnection<L>>>::default();
+        for (node, connections) in self.graph.iter_mut() {
+            let newkey = node.clone().map_children(|child| egraph.find(child));
+            connections.iter_mut().for_each(|connection| {
+                connection.node.update_children(|child| egraph.find(child));
+            });
+            if let Some(v) = newgraph.get_mut(&newkey) {
+                v.extend(connections.clone());
+            } else {
+                newgraph.insert(newkey, connections.clone());
+            }
+        }
+
+        for (_node, connections) in newgraph.iter_mut() {
+            connections.sort_unstable();
+            connections.dedup();
+        }
+    }
+
+    pub(crate) fn produce_proof<N: Analysis<L>>(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        left: RecExpr<L>,
+        right: RecExpr<L>,
+    ) -> Option<Vec<GraphExpr<L>>> {
+        if egraph.add_expr(&left) != egraph.add_expr(&right) {
+            return None;
+        } else {
+            let lg = Rc::new(GraphExpr::<L>::from_recexpr::<N>(egraph, &left));
+            let rg = Rc::new(GraphExpr::<L>::from_recexpr::<N>(egraph, &right));
+            return Some(self.recursive_proof(egraph, lg, rg));
+        }
+    }
+
+    // find a sequence of rewrites between two enodes
+    // this performs a breadth first search to find the one unique path in the graph
+    fn find_proof_path(&self, left: &L, right: &L) -> Vec<&RewriteConnection<L>> {
+      let mut prevNode: HashMap<&L, &L> = Default::default();
+      let mut prev: HashMap<&L, &RewriteConnection<L>> = Default::default();
+      let mut todo: VecDeque<&L> = VecDeque::new();
+      todo.push_back(left);
       
-      if let Some(v) = currentfrom {
-        v.push(fromr);
-      } else {
-        self.graph.insert(from.clone(), vec![fromr]);
+      while true {
+        if todo.len() == 0 {
+          panic!("could not find proof path");
+        }
+        let current = todo.pop_front().unwrap();
+        if let Some(children) = self.graph.get(current) {
+          for child in children {
+            prev.insert(&child.node, child);
+            prevNode.insert(&child.node, current);
+            if(&child.node == right) {
+             break; 
+            }
+            todo.push_back(&child.node);
+          }
+        }
       }
-
-      let currentto = self.graph.get_mut(&to);
-      let tor = RewriteConnection { node: from, rule_index: rule, subst: subst, isdirectionforward: false};
-
-      if let Some(v) = currentto {
-        v.push(tor);
-      } else {
-        self.graph.insert(to, vec![tor]);
+      let mut path = vec![];
+      let mut current: &L = right;
+      while(current != left) {
+        path.push(*prev.get(current).unwrap());
+        current = prevNode.get(current).unwrap();
       }
-    }
-  }
-
-  pub(crate) fn rebuild<N: Analysis<L>>(&mut self, egraph: &EGraph::<L, N>) {
-    let mut newgraph = HashMap::<L, Vec<RewriteConnection<L>>>::default();
-    for (node, connections) in self.graph.iter_mut() {
-      let newkey = node.clone().map_children(|child| egraph.find(child));
-      connections.iter_mut().for_each(|connection| {
-        connection.node.update_children(|child| egraph.find(child));
-      });
-      if let Some(v) = newgraph.get_mut(&newkey) {
-        v.extend(connections.clone());
-      } else {
-        newgraph.insert(newkey, connections.clone());
-      }
+      path.reverse();
+      path
     }
 
-    for (_node, connections) in newgraph.iter_mut() {
-      connections.sort_unstable();
-      connections.dedup();
+    fn recursive_proof<N: Analysis<L>>(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        left: Rc<GraphExpr<L>>,
+        right: Rc<GraphExpr<L>>,
+    ) -> Vec<GraphExpr<L>> {
+      let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
+      vec![]
     }
-  }
 }

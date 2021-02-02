@@ -16,7 +16,8 @@ describing `egg` and some of its technical novelties.
 
 !*/
 
-#[macro_use] extern crate itertools;
+#[macro_use]
+extern crate itertools;
 
 mod macros;
 
@@ -26,6 +27,7 @@ mod dot;
 mod eclass;
 mod egraph;
 mod extract;
+mod history;
 mod language;
 mod machine;
 mod pattern;
@@ -34,7 +36,6 @@ mod run;
 mod subst;
 mod unionfind;
 mod util;
-mod history;
 
 /// A key to identify [`EClass`]es within an
 /// [`EGraph`].
@@ -65,10 +66,7 @@ impl std::fmt::Display for Id {
     }
 }
 
-pub(crate) use {
-    unionfind::UnionFind,
-    history::History,
-};
+pub(crate) use {history::History, unionfind::UnionFind};
 
 pub use {
     dot::Dot,
