@@ -119,14 +119,14 @@ impl<L: Language> History<L> {
     pub(crate) fn produce_proof<N: Analysis<L>>(
         &self,
         egraph: &mut EGraph<L, N>,
-        left: RecExpr<L>,
-        right: RecExpr<L>,
+        left: &RecExpr<L>,
+        right: &RecExpr<L>,
     ) -> Option<Vec<GraphExpr<L>>> {
         if egraph.add_expr(&left) != egraph.add_expr(&right) {
             return None;
         } else {
-            let lg = Rc::new(GraphExpr::<L>::from_recexpr::<N>(egraph, &left));
-            let rg = Rc::new(GraphExpr::<L>::from_recexpr::<N>(egraph, &right));
+            let lg = Rc::new(GraphExpr::<L>::from_recexpr::<N>(egraph, left));
+            let rg = Rc::new(GraphExpr::<L>::from_recexpr::<N>(egraph, right));
             return Some(self.recursive_proof(egraph, lg, rg));
         }
     }
@@ -172,6 +172,9 @@ impl<L: Language> History<L> {
         right: Rc<GraphExpr<L>>,
     ) -> Vec<GraphExpr<L>> {
       let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
+      for p in path {
+        println!("{}", p.rule_index);
+      }
       vec![]
     }
 }

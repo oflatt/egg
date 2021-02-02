@@ -485,6 +485,10 @@ where
         }
     }
 
+    pub fn produce_proof(&mut self, left: &RecExpr<L>, right: &RecExpr<L>) {
+        self.history.produce_proof(&mut self.egraph, left, right);
+    }
+
     fn try_start(&mut self) {
         self.start_time.get_or_insert_with(Instant::now);
     }

@@ -194,6 +194,21 @@ pub fn rules() -> Vec<Rewrite> { vec![
 ]}
 
 egg::test_fn! {
+    math_test_proof, [
+        rw!("comm-add"; "(+ ?a ?b)" => "(+ ?b ?a)"),
+        rw!("assoc-add"; "(+ ?a (+ ?b ?c))" => "(+ (+ ?a ?b) ?c)"),
+    ],
+    runner = Runner::default()
+        .with_iter_limit(7)
+        .with_scheduler(SimpleScheduler),
+    "(+ a b)"
+    =>
+    "(+ b a)"
+    @check |r: Runner<Math, ()>| assert_eq!(r.produce_proof("(+ a b)".parse()
+                                                            "(+ b a)".parse()).len(), 0)
+}
+
+egg::test_fn! {
     math_associate_adds, [
         rw!("comm-add"; "(+ ?a ?b)" => "(+ ?b ?a)"),
         rw!("assoc-add"; "(+ ?a (+ ?b ?c))" => "(+ (+ ?a ?b) ?c)"),
