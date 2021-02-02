@@ -263,7 +263,7 @@ egg::test_fn! {
     #[cfg_attr(feature = "upward-merging", ignore)]
     lambda_function_repeat, rules(),
     runner = Runner::default()
-        .with_time_limit(std::time::Duration::from_secs(20))
+        .with_time_limit(std::time::Duration::from_secs(30))
         .with_node_limit(100_000)
         .with_iter_limit(60),
     "(let compose (lam f (lam g (lam x (app (var f)

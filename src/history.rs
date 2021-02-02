@@ -1,14 +1,42 @@
+use std::rc::Rc;
 use crate::util::{HashMap};
-use crate::{Language, Subst, Applications, EGraph, Analysis
+use crate::{Language, Subst, Applications, EGraph, Analysis, RecExpr
 };
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 struct RewriteConnection<L: Language> {
   node: L,
   rule_index: usize,
   subst: Subst,
   isdirectionforward: bool,
 }
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+struct GraphExpr<L: Language> {
+  node: Option<L>, // sometimes we have a hole
+  children: Vec<Rc<GraphExpr<L>>>,
+}
+
+impl<L: Language> GraphExpr<L> {
+  pub(crate) fn from_recexpr<N: Analysis<L>>(egraph: &mut EGraph::<L, N>, expr: &RecExpr<L>) -> Self {
+    let nodes = expr.as_ref();
+    let mut graphexprs: Vec<Rc<GraphExpr<L>>> = Vec::with_capacity(nodes.len());
+    let mut new_ids = Vec::with_capacity(nodes.len());
+    for node in nodes {
+      let mut children: Vec<Rc<GraphExpr<L>>> = vec![];
+      node.for_each(|i| children.push(graphexprs[usize::from(i)].clone()));
+      let graphnode = node.clone().map_children(|i| new_ids[usize::from(i)]);
+      
+      let expr = Rc::new(GraphExpr { node: Some(node.clone()),
+                                     children: children });
+      graphexprs.push(expr);
+      new_ids.push(egraph.add(graphnode));
+    }
+    // unwrap last graphexpr, the top node
+    Rc::try_unwrap(graphexprs.pop().unwrap()).unwrap()
+  }
+}
+
 
 pub struct History<L: Language> {
     graph: HashMap<L, Vec<RewriteConnection<L>>>,
