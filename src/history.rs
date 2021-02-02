@@ -1,6 +1,6 @@
 use crate::util::HashMap;
-use std::collections::VecDeque;
 use crate::{Analysis, Applications, EGraph, Language, RecExpr, Subst};
+use std::collections::VecDeque;
 use std::rc::Rc;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -19,6 +19,15 @@ pub struct GraphExpr<L: Language> {
     isdirectionforward: bool,
 }
 
+fn enode_to_string<L: Language>(node_ref: &L) -> String {
+    let mut node: L = node_ref.clone();
+    let mut strings = vec![];
+    strings.push(format!("({}", node.display_op()));
+    node.for_each_mut(|child| strings.push(format!(" {}", child)));
+    strings.push(")".to_string());
+    strings.concat()
+}
+
 impl<L: Language> GraphExpr<L> {
     pub(crate) fn from_recexpr<N: Analysis<L>>(
         egraph: &mut EGraph<L, N>,
@@ -33,7 +42,7 @@ impl<L: Language> GraphExpr<L> {
             let graphnode = node.clone().map_children(|i| new_ids[usize::from(i)]);
 
             let expr = Rc::new(GraphExpr {
-                node: Some(node.clone()),
+                node: Some(graphnode.clone()),
                 children: children,
                 rule_index: 0, // dummy value
                 isdirectionforward: true,
@@ -66,6 +75,7 @@ impl<L: Language> History<L> {
             applications.to_nodes,
             applications.substs
         ) {
+            println!("adding to graph from: {} and to: {}", enode_to_string(&from), enode_to_string(&to));
             let currentfrom = self.graph.get_mut(&from);
             let fromr = RewriteConnection {
                 node: to.clone(),
@@ -114,6 +124,7 @@ impl<L: Language> History<L> {
             connections.sort_unstable();
             connections.dedup();
         }
+        self.graph = newgraph;
     }
 
     pub(crate) fn produce_proof<N: Analysis<L>>(
@@ -134,35 +145,41 @@ impl<L: Language> History<L> {
     // find a sequence of rewrites between two enodes
     // this performs a breadth first search to find the one unique path in the graph
     fn find_proof_path(&self, left: &L, right: &L) -> Vec<&RewriteConnection<L>> {
-      let mut prevNode: HashMap<&L, &L> = Default::default();
-      let mut prev: HashMap<&L, &RewriteConnection<L>> = Default::default();
-      let mut todo: VecDeque<&L> = VecDeque::new();
-      todo.push_back(left);
-      
-      while true {
-        if todo.len() == 0 {
-          panic!("could not find proof path");
-        }
-        let current = todo.pop_front().unwrap();
-        if let Some(children) = self.graph.get(current) {
-          for child in children {
-            prev.insert(&child.node, child);
-            prevNode.insert(&child.node, current);
-            if(&child.node == right) {
-             break; 
+        let mut prevNode: HashMap<&L, &L> = Default::default();
+        let mut prev: HashMap<&L, &RewriteConnection<L>> = Default::default();
+        let mut todo: VecDeque<&L> = VecDeque::new();
+        todo.push_back(left);
+
+        while true {
+            if todo.len() == 0 {
+                panic!("could not find proof path");
             }
-            todo.push_back(&child.node);
-          }
+            let current = todo.pop_front().unwrap();
+            
+            if let Some(children) = self.graph.get(current) {
+                let mut found = false;
+                for child in children {
+                    prev.insert(&child.node, child);
+                    prevNode.insert(&child.node, current);
+                    if (&child.node == right) {
+                        found = true;
+                        break;
+                    }
+                    todo.push_back(&child.node);
+                }
+                if(found) {
+                    break;
+                }
+            }
         }
-      }
-      let mut path = vec![];
-      let mut current: &L = right;
-      while(current != left) {
-        path.push(*prev.get(current).unwrap());
-        current = prevNode.get(current).unwrap();
-      }
-      path.reverse();
-      path
+        let mut path = vec![];
+        let mut current: &L = right;
+        while (current != left) {
+            path.push(*prev.get(current).unwrap());
+            current = prevNode.get(current).unwrap();
+        }
+        path.reverse();
+        path
     }
 
     fn recursive_proof<N: Analysis<L>>(
@@ -171,10 +188,11 @@ impl<L: Language> History<L> {
         left: Rc<GraphExpr<L>>,
         right: Rc<GraphExpr<L>>,
     ) -> Vec<GraphExpr<L>> {
-      let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
-      for p in path {
-        println!("{}", p.rule_index);
-      }
-      vec![]
+        let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
+        println!("path:");
+        for p in path {
+            println!("{}", p.rule_index);
+        }
+        vec![]
     }
 }

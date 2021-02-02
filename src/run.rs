@@ -485,8 +485,12 @@ where
         }
     }
 
-    pub fn produce_proof(&mut self, left: &RecExpr<L>, right: &RecExpr<L>) {
-        self.history.produce_proof(&mut self.egraph, left, right);
+    pub fn produce_proof(
+        &mut self,
+        left: &RecExpr<L>,
+        right: &RecExpr<L>,
+    ) -> Option<Vec<GraphExpr<L>>> {
+        self.history.produce_proof(&mut self.egraph, left, right)
     }
 
     fn try_start(&mut self) {

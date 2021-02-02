@@ -204,8 +204,8 @@ egg::test_fn! {
     "(+ a b)"
     =>
     "(+ b a)"
-    @check |r: Runner<Math, ()>| assert_eq!(r.produce_proof("(+ a b)".parse()
-                                                            "(+ b a)".parse()).len(), 0)
+    @check |mut r: Runner<Math, ()>| assert_eq!(r.produce_proof(&"(+ a b)".parse().unwrap(),
+                                                                &"(+ b a)".parse().unwrap()).unwrap().len(), 0)
 }
 
 egg::test_fn! {
