@@ -189,10 +189,6 @@ impl<L: Language> History<L> {
         right: Rc<GraphExpr<L>>,
     ) -> Vec<GraphExpr<L>> {
         let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
-        println!("path:");
-        for p in path {
-            println!("{}", p.rule_index);
-        }
         vec![]
     }
 }
