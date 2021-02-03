@@ -1,4 +1,5 @@
 use crate::util::HashMap;
+use symbolic_expressions::Sexp;
 use crate::{Analysis, Applications, EGraph, Language, RecExpr, Subst, Rewrite, ENodeOrVar, PatternAst, Id, Var};
 use std::collections::VecDeque;
 use std::rc::Rc;
@@ -29,6 +30,42 @@ fn enode_to_string<L: Language>(node_ref: &L) -> String {
 }
 
 impl<L: Language> NodeExpr<L> {
+    pub(crate) fn to_strings<N: Analysis<L>>(rules: &[&Rewrite<L, N>], exprs: &Vec<Rc<NodeExpr<L>>>) -> Vec<String> {
+        let mut res = vec![];
+        for i in exprs {
+            res.push(i.to_string());
+            res.push(i.connection_string::<N>(rules));
+        }
+        res.pop();
+        res
+    }
+
+    pub(crate) fn to_sexp(&self) -> Sexp {
+        match &self.node {
+            Some(node) => {
+                let mut vec = vec![Sexp::String(node.display_op().to_string())];
+                for child in &self.children {
+                    vec.push(child.to_sexp());
+                }
+                Sexp::List(vec)
+            }
+            None => Sexp::String("hole".to_string())
+        }
+    }
+
+    pub(crate) fn to_string(&self) -> String {
+        self.to_sexp().to_string()
+    }
+
+    pub(crate) fn connection_string<N: Analysis<L>>(&self, rules: &[&Rewrite<L, N>]) -> String {
+        if(self.isdirectionforward) {
+            rules[self.rule_index].name.to_string() + &"=>".to_string()
+        } else {
+            "<=".to_string() + &rules[self.rule_index].name.to_string()
+        }
+
+    }
+
     pub(crate) fn from_recexpr<N: Analysis<L>>(
         egraph: &mut EGraph<L, N>,
         expr: &RecExpr<L>,
@@ -263,7 +300,7 @@ impl<L: Language> History<L> {
 
         // they are equal enodes, prove children equal
         if path.len() == 0 {
-            self.prove_children_equal(egraph, rules, right, &mut proof);
+            //self.prove_children_equal(egraph, rules, right, &mut proof);
             return proof;
         }
 
@@ -289,7 +326,7 @@ impl<L: Language> History<L> {
         }
 
         // TODO now that we have arrived at the correct enode, there may yet be work to do on the children
-        self.prove_children_equal(egraph, rules, right, &mut proof);
+        //self.prove_children_equal(egraph, rules, right, &mut proof);
 
         proof
     }
