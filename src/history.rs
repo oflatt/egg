@@ -87,6 +87,12 @@ impl<L: Language> NodeExpr<L> {
         // unwrap last graphexpr, the top node
         Rc::try_unwrap(graphexprs.pop().unwrap()).unwrap()
     }
+
+    pub(crate) fn rewrite(&self, left: &PatternAst<L>, right: &PatternAst<L>) -> NodeExpr<L> {
+        let subst: HashMap<Var, Rc<NodeExpr<L>>> = Default::default();
+
+        ...
+    }
 }
 
 pub struct History<L: Language> {
@@ -256,6 +262,7 @@ impl<L: Language> History<L> {
                     }
                 }
             }
+            return proof;
         }
 
         for connection in path.iter() {
@@ -263,8 +270,19 @@ impl<L: Language> History<L> {
                 panic!("Rewrites from goal to start are not yet supported");
             }
             let rule = rules[connection.rule_index];
-            let search_pattern = NodeExpr::<L>::from_pattern_ast::<N>(egraph, rule.searcher.get_ast(), &connection.subst);
+            let search_pattern = Rc::new(NodeExpr::<L>::from_pattern_ast::<N>(egraph, rule.searcher.get_ast(), &connection.subst));
+
+            let subproof = self.recursive_proof(egraph, rules, proof[proof.len()-1].clone(), search_pattern);
+            if subproof.len() > 1 {
+                panic!("TODO");
+            }
+
+            let latest = proof.pop();
+            let next = latest.rewrite(rule.searcher.get_ast(), rule.applier.get_ast());
+
         }
+
+        // TODO now that we have arrived at the correct enode, there may yet be work to do on the children
 
         proof
     }
