@@ -49,11 +49,16 @@ impl<L: Language> NodeExpr<L> {
     pub fn to_sexp(&self) -> Sexp {
         match &self.node {
             Some(node) => {
-                let mut vec = vec![Sexp::String(node.display_op().to_string())];
-                for child in &self.children {
-                    vec.push(child.to_sexp());
+                let op = Sexp::String(node.display_op().to_string());
+                if self.children.len() == 0 {
+                    op
+                } else {
+                    let mut vec = vec![op];
+                    for child in &self.children {
+                        vec.push(child.to_sexp());
+                    }
+                    Sexp::List(vec)
                 }
-                Sexp::List(vec)
             }
             None => Sexp::String("hole".to_string()),
         }
@@ -270,6 +275,9 @@ impl<L: Language> History<L> {
     // find a sequence of rewrites between two enodes
     // this performs a breadth first search to find the one unique path in the graph
     fn find_proof_path(&self, left: &L, right: &L) -> Vec<&RewriteConnection<L>> {
+        if(left == right) {
+            return vec![];
+        }
         let mut prevNode: HashMap<&L, &L> = Default::default();
         let mut prev: HashMap<&L, &RewriteConnection<L>> = Default::default();
         let mut todo: VecDeque<&L> = VecDeque::new();
@@ -330,12 +338,6 @@ impl<L: Language> History<L> {
 
         let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
 
-        // they are equal enodes, prove children equal
-        if path.len() == 0 {
-            //self.prove_children_equal(egraph, rules, right, &mut proof);
-            return proof;
-        }
-
         for connection in path.iter() {
             if !connection.isdirectionforward {
                 panic!("Rewrites from goal to start are not yet supported");
@@ -363,7 +365,8 @@ impl<L: Language> History<L> {
                 search_pattern,
             );
             if subproof.len() > 1 {
-                panic!("TODO");
+                proof.pop();
+                proof.extend(subproof);
             }
 
             let latest = proof.pop().unwrap();
@@ -375,8 +378,8 @@ impl<L: Language> History<L> {
             proof.push(next);
         }
 
-        // TODO now that we have arrived at the correct enode, there may yet be work to do on the children
-        //self.prove_children_equal(egraph, rules, right, &mut proof);
+        // now that we have arrived at the correct enode, there may yet be work to do on the children
+        self.prove_children_equal(egraph, rules, right, &mut proof);
 
         proof
     }

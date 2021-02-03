@@ -193,29 +193,6 @@ pub fn rules() -> Vec<Rewrite> { vec![
         "(- (* ?a (i ?b ?x)) (i (* (d ?x ?a) (i ?b ?x)) ?x))"),
 ]}
 
-#[rustfmt::skip]
-pub fn simple_rules() -> Vec<Rewrite> { vec![
-    rw!("comm-add"; "(+ ?a ?b)" => "(+ ?b ?a)"),
-    rw!("assoc-add"; "(+ ?a (+ ?b ?c))" => "(+ (+ ?a ?b) ?c)"),
-]}
-
-egg::test_fn! {
-    math_test_proof, simple_rules(),
-    runner = Runner::default()
-        .with_iter_limit(7)
-        .with_scheduler(SimpleScheduler),
-    "(+ a b)"
-    =>
-    "(+ b a)"
-    @check |mut r: Runner<Math, ConstantFold>| {
-        let rules: Vec<Rewrite> = simple_rules();
-        let proof = r.produce_proof(&[&rules[0], &rules[1]], // WTF
-                                    &"(+ a b)".parse().unwrap(),
-                                    &"(+ b a)".parse().unwrap()).unwrap();
-        assert_eq!(NodeExpr::<Math>::to_strings::<ConstantFold>(&[&rules[0], &rules[1]], &proof),
-                  vec!["test"]);
-    }
-}
 
 egg::test_fn! {
     math_associate_adds, [
@@ -312,4 +289,67 @@ egg::test_fn! {
 
 egg::test_fn! {
     integ_part3, rules(), "(i (ln x) x)" => "(- (* x (ln x)) x)"
+}
+
+// Proof tests
+#[rustfmt::skip]
+pub fn simple_rules() -> Vec<Rewrite> { vec![
+    rw!("comm-add"; "(+ ?a ?b)" => "(+ ?b ?a)"),
+    rw!("assoc-add"; "(+ ?a (+ ?b ?c))" => "(+ (+ ?a ?b) ?c)"),
+]}
+
+fn check_proof(r: &mut Runner<Math, ConstantFold>, rules: &Vec<Rewrite>, left: &str, right: &str, expected: Vec<&str>) {
+        let proof = r.produce_proof(&[&rules[0], &rules[1]], // WTF
+                                    &left.parse().unwrap(),
+                                    &right.parse().unwrap()).unwrap();
+        assert_eq!(NodeExpr::<Math>::to_strings::<ConstantFold>(&[&rules[0], &rules[1]], &proof),
+                  expected);
+}
+
+egg::test_fn! {
+    math_test_proof, simple_rules(),
+    runner = Runner::default()
+        .with_iter_limit(7)
+        .with_scheduler(SimpleScheduler),
+    "(+ a b)"
+    =>
+    "(+ b a)"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        check_proof(&mut r, &simple_rules(), "(+ a b)", "(+ b a)", vec!["(+ a b)", "comm-add =>", "(+ b a)"]);
+    }
+}
+
+egg::test_fn! {
+    math_test_prove_children, simple_rules(),
+    runner = Runner::default()
+        .with_iter_limit(7)
+        .with_scheduler(SimpleScheduler),
+    "(+ a (+ b c))"
+    =>
+    "(+ a (+ c b))"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        check_proof(&mut r, &simple_rules(), "(+ a (+ b c))",
+                    "(+ a (+ c b))",
+                    vec!["(+ a (+ b c))", "comm-add =>", "(+ a (+ c b))"]);
+    }
+}
+
+
+egg::test_fn! {
+    math_test_prove_multiple, simple_rules(),
+    runner = Runner::default()
+        .with_iter_limit(7)
+        .with_scheduler(SimpleScheduler),
+    "(+ a (+ b c))"
+    =>
+    "(+ (+ a c) b))"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        check_proof(&mut r, &simple_rules(), "(+ a (+ b c))",
+                    "(+ (+ a c) b))",
+                    vec!["(+ a (+ b c))",
+                         "comm-add =>",
+                         "(+ a (+ c b))",
+                         "assoc-add =>",
+                         "(+ (+ a c) b)"]);
+    }
 }
