@@ -40,10 +40,10 @@ impl<L: Language> NodeExpr<L> {
             children: children,
             rule_index: 0,
             is_direction_forward: true,
-            is_being_rewritten: false
+            is_being_rewritten: false,
         }
     }
-    
+
     pub fn to_strings<N: Analysis<L>>(
         rules: &[&Rewrite<L, N>],
         exprs: &Vec<Rc<NodeExpr<L>>>,
@@ -61,14 +61,22 @@ impl<L: Language> NodeExpr<L> {
         match &self.node {
             Some(node) => {
                 let op = Sexp::String(node.display_op().to_string());
-                if self.children.len() == 0 {
-                    op
-                } else {
-                    let mut vec = vec![op];
-                    for child in &self.children {
-                        vec.push(child.to_sexp());
+                let res = {
+                    if self.children.len() > 0 {
+                        let mut vec = vec![op];
+                        for child in &self.children {
+                            vec.push(child.to_sexp());
+                        }
+                        Sexp::List(vec)
+                    } else {
+                        op
                     }
-                    Sexp::List(vec)
+                };
+
+                if (self.is_being_rewritten) {
+                    Sexp::List(vec![Sexp::String("=>".to_string()), res])
+                } else {
+                    res
                 }
             }
             None => Sexp::String("hole".to_string()),
@@ -99,9 +107,7 @@ impl<L: Language> NodeExpr<L> {
             node.for_each(|i| children.push(graphexprs[usize::from(i)].clone()));
             let graphnode = node.clone().map_children(|i| new_ids[usize::from(i)]);
 
-            let expr = Rc::new(NodeExpr::new(
-                Some(graphnode.clone()),
-                children));
+            let expr = Rc::new(NodeExpr::new(Some(graphnode.clone()), children));
             graphexprs.push(expr);
             new_ids.push(egraph.add(graphnode));
         }
@@ -124,9 +130,7 @@ impl<L: Language> NodeExpr<L> {
                     if let Some(map) = substmap {
                         graphexprs.push(map.get(v).unwrap().clone());
                     } else {
-                        graphexprs.push(Rc::new(NodeExpr::new(
-                            None,
-                            vec![])));
+                        graphexprs.push(Rc::new(NodeExpr::new(None, vec![])));
                     }
                     new_ids.push(subst[*v]);
                 }
@@ -135,9 +139,7 @@ impl<L: Language> NodeExpr<L> {
                     node.for_each(|i| children.push(graphexprs[usize::from(i)].clone()));
                     let graphnode = node.clone().map_children(|i| new_ids[usize::from(i)]);
 
-                    let expr = Rc::new(NodeExpr::new(
-                        Some(graphnode.clone()),
-                        children));
+                    let expr = Rc::new(NodeExpr::new(Some(graphnode.clone()), children));
                     graphexprs.push(expr);
                     new_ids.push(egraph.add(graphnode));
                 }
@@ -182,7 +184,7 @@ impl<L: Language> NodeExpr<L> {
             egraph,
             right,
             subst,
-            Some(&graphsubst)
+            Some(&graphsubst),
         ))
     }
 }
@@ -277,7 +279,7 @@ impl<L: Language> History<L> {
     // find a sequence of rewrites between two enodes
     // this performs a breadth first search to find the one unique path in the graph
     fn find_proof_path(&self, left: &L, right: &L) -> Vec<&RewriteConnection<L>> {
-        if(left == right) {
+        if (left == right) {
             return vec![];
         }
         let mut prevNode: HashMap<&L, &L> = Default::default();
@@ -376,6 +378,7 @@ impl<L: Language> History<L> {
             let mut newlink = (*latest).clone();
             newlink.rule_index = connection.rule_index;
             newlink.is_direction_forward = connection.is_direction_forward;
+            newlink.is_being_rewritten = true;
             proof.push(Rc::new(newlink));
             proof.push(next);
         }

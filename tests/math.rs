@@ -193,7 +193,6 @@ pub fn rules() -> Vec<Rewrite> { vec![
         "(- (* ?a (i ?b ?x)) (i (* (d ?x ?a) (i ?b ?x)) ?x))"),
 ]}
 
-
 egg::test_fn! {
     math_associate_adds, [
         rw!("comm-add"; "(+ ?a ?b)" => "(+ ?b ?a)"),
@@ -298,13 +297,21 @@ pub fn simple_rules() -> Vec<Rewrite> { vec![
     rw!("assoc-add"; "(+ ?a (+ ?b ?c))" => "(+ (+ ?a ?b) ?c)"),
 ]}
 
-fn check_proof(r: &mut Runner<Math, ConstantFold>, rules: Vec<Rewrite>, left: &str, right: &str, expected: Vec<&str>) {
+fn check_proof(
+    r: &mut Runner<Math, ConstantFold>,
+    rules: Vec<Rewrite>,
+    left: &str,
+    right: &str,
+    expected: Vec<&str>,
+) {
     let rule_slice = &rules.iter().collect::<Vec<&Rewrite>>()[..];
-    let proof = r.produce_proof(rule_slice,
-                                &left.parse().unwrap(),
-                                &right.parse().unwrap()).unwrap();
-    assert_eq!(NodeExpr::<Math>::to_strings::<ConstantFold>(rule_slice, &proof),
-                expected);
+    let proof = r
+        .produce_proof(rule_slice, &left.parse().unwrap(), &right.parse().unwrap())
+        .unwrap();
+    assert_eq!(
+        NodeExpr::<Math>::to_strings::<ConstantFold>(rule_slice, &proof),
+        expected
+    );
 }
 
 egg::test_fn! {
@@ -316,7 +323,10 @@ egg::test_fn! {
     =>
     "(+ b a)"
     @check |mut r: Runner<Math, ConstantFold>| {
-        check_proof(&mut r, simple_rules(), "(+ a b)", "(+ b a)", vec!["(+ a b)", "comm-add =>", "(+ b a)"]);
+        check_proof(&mut r, simple_rules(), "(+ a b)", "(+ b a)",
+                    vec!["(=> (+ a b))",
+                         "comm-add =>",
+                         "(+ b a)"]);
     }
 }
 
@@ -331,10 +341,9 @@ egg::test_fn! {
     @check |mut r: Runner<Math, ConstantFold>| {
         check_proof(&mut r, simple_rules(), "(+ a (+ b c))",
                     "(+ a (+ c b))",
-                    vec!["(+ a (+ b c))", "comm-add =>", "(+ a (+ c b))"]);
+                    vec!["(+ a (=> (+ b c)))", "comm-add =>", "(+ a (+ c b))"]);
     }
 }
-
 
 egg::test_fn! {
     math_test_prove_multiple, rules(),
@@ -347,9 +356,9 @@ egg::test_fn! {
     @check |mut r: Runner<Math, ConstantFold>| {
         check_proof(&mut r, rules(), "(+ a (+ b c))",
                     "(+ (+ a c) b))",
-                    vec!["(+ a (+ b c))",
+                    vec!["(+ a (=> (+ b c)))",
                          "comm-add =>",
-                         "(+ a (+ c b))",
+                         "(=> (+ a (+ c b)))",
                          "assoc-add =>",
                          "(+ (+ a c) b)"]);
     }
