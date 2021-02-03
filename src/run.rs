@@ -1,7 +1,7 @@
 use indexmap::IndexMap;
 use instant::{Duration, Instant};
-use std::rc::Rc;
 use log::*;
+use std::rc::Rc;
 
 use crate::*;
 
@@ -492,7 +492,8 @@ where
         left: &RecExpr<L>,
         right: &RecExpr<L>,
     ) -> Option<Vec<Rc<NodeExpr<L>>>> {
-        self.history.produce_proof(&mut self.egraph, rules, left, right)
+        self.history
+            .produce_proof(&mut self.egraph, rules, left, right)
     }
 
     fn try_start(&mut self) {

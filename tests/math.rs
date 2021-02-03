@@ -193,7 +193,6 @@ pub fn rules() -> Vec<Rewrite> { vec![
         "(- (* ?a (i ?b ?x)) (i (* (d ?x ?a) (i ?b ?x)) ?x))"),
 ]}
 
-
 #[rustfmt::skip]
 pub fn simple_rules() -> Vec<Rewrite> { vec![
     rw!("comm-add"; "(+ ?a ?b)" => "(+ ?b ?a)"),
@@ -213,7 +212,7 @@ egg::test_fn! {
         let proof = r.produce_proof(&[&rules[0], &rules[1]], // WTF
                                     &"(+ a b)".parse().unwrap(),
                                     &"(+ b a)".parse().unwrap()).unwrap();
-        assert_eq!(NodeExpr::<Math>::to_strings::<ConstantFold>(&[&rules[0], &rules[1]], &proof), 
+        assert_eq!(NodeExpr::<Math>::to_strings::<ConstantFold>(&[&rules[0], &rules[1]], &proof),
                   vec!["test"]);
     }
 }

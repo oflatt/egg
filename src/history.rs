@@ -1,8 +1,11 @@
 use crate::util::HashMap;
-use symbolic_expressions::Sexp;
-use crate::{Analysis, Applications, EGraph, Language, RecExpr, Subst, Rewrite, ENodeOrVar, PatternAst, Id, Var};
+use crate::{
+    Analysis, Applications, EGraph, ENodeOrVar, Id, Language, PatternAst, RecExpr, Rewrite, Subst,
+    Var,
+};
 use std::collections::VecDeque;
 use std::rc::Rc;
+use symbolic_expressions::Sexp;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 struct RewriteConnection<L: Language> {
@@ -30,7 +33,10 @@ fn enode_to_string<L: Language>(node_ref: &L) -> String {
 }
 
 impl<L: Language> NodeExpr<L> {
-    pub fn to_strings<N: Analysis<L>>(rules: &[&Rewrite<L, N>], exprs: &Vec<Rc<NodeExpr<L>>>) -> Vec<String> {
+    pub fn to_strings<N: Analysis<L>>(
+        rules: &[&Rewrite<L, N>],
+        exprs: &Vec<Rc<NodeExpr<L>>>,
+    ) -> Vec<String> {
         let mut res = vec![];
         for i in exprs {
             res.push(i.to_string());
@@ -49,7 +55,7 @@ impl<L: Language> NodeExpr<L> {
                 }
                 Sexp::List(vec)
             }
-            None => Sexp::String("hole".to_string())
+            None => Sexp::String("hole".to_string()),
         }
     }
 
@@ -58,12 +64,11 @@ impl<L: Language> NodeExpr<L> {
     }
 
     pub fn connection_string<N: Analysis<L>>(&self, rules: &[&Rewrite<L, N>]) -> String {
-        if(self.isdirectionforward) {
-            rules[self.rule_index].name.to_string() + &"=>".to_string()
+        if (self.isdirectionforward) {
+            rules[self.rule_index].name.to_string() + &" =>".to_string()
         } else {
-            "<=".to_string() + &rules[self.rule_index].name.to_string()
+            "<= ".to_string() + &rules[self.rule_index].name.to_string()
         }
-
     }
 
     pub(crate) fn from_recexpr<N: Analysis<L>>(
@@ -95,7 +100,7 @@ impl<L: Language> NodeExpr<L> {
         egraph: &mut EGraph<L, N>,
         ast: &PatternAst<L>,
         subst: &Subst,
-        substmap: Option<&HashMap<Var, Rc<NodeExpr<L>>>> // optionally used to replace variables with nodeexpr
+        substmap: Option<&HashMap<Var, Rc<NodeExpr<L>>>>, // optionally used to replace variables with nodeexpr
     ) -> Self {
         let nodes = ast.as_ref();
         let mut graphexprs: Vec<Rc<NodeExpr<L>>> = Vec::with_capacity(nodes.len());
@@ -103,7 +108,16 @@ impl<L: Language> NodeExpr<L> {
         for nodeorvar in nodes {
             match nodeorvar {
                 ENodeOrVar::Var(v) => {
-                    graphexprs.push(Rc::new(NodeExpr { node: None, children: vec![], rule_index: 0, isdirectionforward: true }));
+                    if let Some(map) = substmap {
+                        graphexprs.push(map.get(v).unwrap().clone());
+                    } else {
+                        graphexprs.push(Rc::new(NodeExpr {
+                            node: None,
+                            children: vec![],
+                            rule_index: 0,
+                            isdirectionforward: true,
+                        }));
+                    }
                     new_ids.push(subst[*v]);
                 }
                 ENodeOrVar::ENode(node) => {
@@ -118,7 +132,7 @@ impl<L: Language> NodeExpr<L> {
                         isdirectionforward: true,
                     });
                     graphexprs.push(expr);
-                    new_ids.push(egraph.add(graphnode));       
+                    new_ids.push(egraph.add(graphnode));
                 }
             }
         }
@@ -126,7 +140,12 @@ impl<L: Language> NodeExpr<L> {
         Rc::try_unwrap(graphexprs.pop().unwrap()).unwrap()
     }
 
-    fn make_subst(self: &Rc<NodeExpr<L>>, left: &PatternAst<L>, pos: Id, current: &mut HashMap<Var, Rc<NodeExpr<L>>>) {
+    fn make_subst(
+        self: &Rc<NodeExpr<L>>,
+        left: &PatternAst<L>,
+        pos: Id,
+        current: &mut HashMap<Var, Rc<NodeExpr<L>>>,
+    ) {
         match &left[pos] {
             ENodeOrVar::Var(v) => {
                 current.insert(*v, self.clone());
@@ -134,17 +153,30 @@ impl<L: Language> NodeExpr<L> {
             ENodeOrVar::ENode(node) => {
                 let mut index = 0;
                 node.for_each(|child| {
-                    self.children[index].clone().make_subst(left, child, current);
+                    self.children[index]
+                        .clone()
+                        .make_subst(left, child, current);
                     index += 1;
                 });
             }
         }
     }
 
-    pub(crate) fn rewrite<N: Analysis<L>>(self: &Rc<NodeExpr<L>>, egraph: &mut EGraph<L, N>, left: &PatternAst<L>, right: &PatternAst<L>, subst: &Subst) -> Rc<NodeExpr<L>> {
+    pub(crate) fn rewrite<N: Analysis<L>>(
+        self: &Rc<NodeExpr<L>>,
+        egraph: &mut EGraph<L, N>,
+        left: &PatternAst<L>,
+        right: &PatternAst<L>,
+        subst: &Subst,
+    ) -> Rc<NodeExpr<L>> {
         let mut graphsubst = Default::default();
-        self.make_subst(left, Id::from(left.as_ref().len()-1), &mut graphsubst);
-        Rc::new(NodeExpr::<L>::from_pattern_ast::<N>(egraph, right, subst, Some(&graphsubst)))
+        self.make_subst(left, Id::from(left.as_ref().len() - 1), &mut graphsubst);
+        Rc::new(NodeExpr::<L>::from_pattern_ast::<N>(
+            egraph,
+            right,
+            subst,
+            Some(&graphsubst),
+        ))
     }
 }
 
@@ -248,7 +280,7 @@ impl<L: Language> History<L> {
                 panic!("could not find proof path");
             }
             let current = todo.pop_front().unwrap();
-            
+
             if let Some(children) = self.graph.get(current) {
                 let mut found = false;
                 for child in children {
@@ -260,7 +292,7 @@ impl<L: Language> History<L> {
                     }
                     todo.push_back(&child.node);
                 }
-                if(found) {
+                if (found) {
                     break;
                 }
             }
@@ -282,14 +314,14 @@ impl<L: Language> History<L> {
         left: Rc<NodeExpr<L>>,
         right: Rc<NodeExpr<L>>,
     ) -> Vec<Rc<NodeExpr<L>>> {
-        if(left.node == None && right.node == None) {
+        if (left.node == None && right.node == None) {
             panic!("Can't prove two holes equal");
         }
 
         // empty proof when one of them is a hole
-        if(left.node == None) {
+        if (left.node == None) {
             return vec![right.clone()];
-        } else if(right.node == None) {
+        } else if (right.node == None) {
             return vec![left.clone()];
         }
 
@@ -317,9 +349,19 @@ impl<L: Language> History<L> {
             if rast == None {
                 panic!("Applier must implement get_ast function");
             }
-            let search_pattern = Rc::new(NodeExpr::<L>::from_pattern_ast::<N>(egraph, sast.unwrap(), &connection.subst, None));
+            let search_pattern = Rc::new(NodeExpr::<L>::from_pattern_ast::<N>(
+                egraph,
+                sast.unwrap(),
+                &connection.subst,
+                None,
+            ));
 
-            let subproof = self.recursive_proof(egraph, rules, proof[proof.len()-1].clone(), search_pattern);
+            let subproof = self.recursive_proof(
+                egraph,
+                rules,
+                proof[proof.len() - 1].clone(),
+                search_pattern,
+            );
             if subproof.len() > 1 {
                 panic!("TODO");
             }
@@ -344,9 +386,9 @@ impl<L: Language> History<L> {
         egraph: &mut EGraph<L, N>,
         rules: &[&Rewrite<L, N>],
         right: Rc<NodeExpr<L>>,
-        proof: &mut Vec<Rc<NodeExpr<L>>>
+        proof: &mut Vec<Rc<NodeExpr<L>>>,
     ) {
-        let left = proof[proof.len()-1].clone();
+        let left = proof[proof.len() - 1].clone();
         if left.children.len() != right.children.len() {
             panic!("Found equal enodes but different number of children");
         }
@@ -362,7 +404,7 @@ impl<L: Language> History<L> {
                     newlink.rule_index = proof_equal[j].rule_index;
                     newlink.isdirectionforward = proof_equal[j].isdirectionforward;
                     proof.push(Rc::new(newlink));
-                    latest = proof[proof.len()-1].clone()
+                    latest = proof[proof.len() - 1].clone()
                 }
             }
         }
