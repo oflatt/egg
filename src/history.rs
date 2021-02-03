@@ -12,7 +12,7 @@ struct RewriteConnection<L: Language> {
     node: L,
     rule_index: usize,
     subst: Subst,
-    isdirectionforward: bool,
+    is_direction_forward: bool,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -20,7 +20,8 @@ pub struct NodeExpr<L: Language> {
     node: Option<L>, // sometimes we have a hole
     children: Vec<Rc<NodeExpr<L>>>,
     rule_index: usize,
-    isdirectionforward: bool,
+    is_direction_forward: bool,
+    is_being_rewritten: bool,
 }
 
 fn enode_to_string<L: Language>(node_ref: &L) -> String {
@@ -33,6 +34,16 @@ fn enode_to_string<L: Language>(node_ref: &L) -> String {
 }
 
 impl<L: Language> NodeExpr<L> {
+    pub fn new(node: Option<L>, children: Vec<Rc<NodeExpr<L>>>) -> NodeExpr<L> {
+        NodeExpr {
+            node: node,
+            children: children,
+            rule_index: 0,
+            is_direction_forward: true,
+            is_being_rewritten: false
+        }
+    }
+    
     pub fn to_strings<N: Analysis<L>>(
         rules: &[&Rewrite<L, N>],
         exprs: &Vec<Rc<NodeExpr<L>>>,
@@ -69,7 +80,7 @@ impl<L: Language> NodeExpr<L> {
     }
 
     pub fn connection_string<N: Analysis<L>>(&self, rules: &[&Rewrite<L, N>]) -> String {
-        if (self.isdirectionforward) {
+        if (self.is_direction_forward) {
             rules[self.rule_index].name.to_string() + &" =>".to_string()
         } else {
             "<= ".to_string() + &rules[self.rule_index].name.to_string()
@@ -88,12 +99,9 @@ impl<L: Language> NodeExpr<L> {
             node.for_each(|i| children.push(graphexprs[usize::from(i)].clone()));
             let graphnode = node.clone().map_children(|i| new_ids[usize::from(i)]);
 
-            let expr = Rc::new(NodeExpr {
-                node: Some(graphnode.clone()),
-                children: children,
-                rule_index: 0, // dummy value
-                isdirectionforward: true,
-            });
+            let expr = Rc::new(NodeExpr::new(
+                Some(graphnode.clone()),
+                children));
             graphexprs.push(expr);
             new_ids.push(egraph.add(graphnode));
         }
@@ -116,12 +124,9 @@ impl<L: Language> NodeExpr<L> {
                     if let Some(map) = substmap {
                         graphexprs.push(map.get(v).unwrap().clone());
                     } else {
-                        graphexprs.push(Rc::new(NodeExpr {
-                            node: None,
-                            children: vec![],
-                            rule_index: 0,
-                            isdirectionforward: true,
-                        }));
+                        graphexprs.push(Rc::new(NodeExpr::new(
+                            None,
+                            vec![])));
                     }
                     new_ids.push(subst[*v]);
                 }
@@ -130,12 +135,9 @@ impl<L: Language> NodeExpr<L> {
                     node.for_each(|i| children.push(graphexprs[usize::from(i)].clone()));
                     let graphnode = node.clone().map_children(|i| new_ids[usize::from(i)]);
 
-                    let expr = Rc::new(NodeExpr {
-                        node: Some(graphnode.clone()),
-                        children: children,
-                        rule_index: 0, // dummy value
-                        isdirectionforward: true,
-                    });
+                    let expr = Rc::new(NodeExpr::new(
+                        Some(graphnode.clone()),
+                        children));
                     graphexprs.push(expr);
                     new_ids.push(egraph.add(graphnode));
                 }
@@ -176,11 +178,11 @@ impl<L: Language> NodeExpr<L> {
     ) -> Rc<NodeExpr<L>> {
         let mut graphsubst = Default::default();
         self.make_subst(left, Id::from(left.as_ref().len() - 1), &mut graphsubst);
-        Rc::new(NodeExpr::<L>::from_pattern_ast::<N>(
+        Rc::new(NodeExpr::from_pattern_ast::<N>(
             egraph,
             right,
             subst,
-            Some(&graphsubst),
+            Some(&graphsubst)
         ))
     }
 }
@@ -210,7 +212,7 @@ impl<L: Language> History<L> {
                 node: to.clone(),
                 rule_index: rule,
                 subst: subst.clone(),
-                isdirectionforward: true,
+                is_direction_forward: true,
             };
 
             if let Some(v) = currentfrom {
@@ -224,7 +226,7 @@ impl<L: Language> History<L> {
                 node: from,
                 rule_index: rule,
                 subst: subst,
-                isdirectionforward: false,
+                is_direction_forward: false,
             };
 
             if let Some(v) = currentto {
@@ -266,8 +268,8 @@ impl<L: Language> History<L> {
         if egraph.add_expr(&left) != egraph.add_expr(&right) {
             return None;
         } else {
-            let lg = Rc::new(NodeExpr::<L>::from_recexpr::<N>(egraph, left));
-            let rg = Rc::new(NodeExpr::<L>::from_recexpr::<N>(egraph, right));
+            let lg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, left));
+            let rg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, right));
             return Some(self.recursive_proof(egraph, rules, lg, rg));
         }
     }
@@ -339,7 +341,7 @@ impl<L: Language> History<L> {
         let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
 
         for connection in path.iter() {
-            if !connection.isdirectionforward {
+            if !connection.is_direction_forward {
                 panic!("Rewrites from goal to start are not yet supported");
             }
             let rule = rules[connection.rule_index];
@@ -351,7 +353,7 @@ impl<L: Language> History<L> {
             if rast == None {
                 panic!("Applier must implement get_ast function");
             }
-            let search_pattern = Rc::new(NodeExpr::<L>::from_pattern_ast::<N>(
+            let search_pattern = Rc::new(NodeExpr::from_pattern_ast::<N>(
                 egraph,
                 sast.unwrap(),
                 &connection.subst,
@@ -373,7 +375,7 @@ impl<L: Language> History<L> {
             let next = latest.rewrite::<N>(egraph, sast.unwrap(), rast.unwrap(), &connection.subst);
             let mut newlink = (*latest).clone();
             newlink.rule_index = connection.rule_index;
-            newlink.isdirectionforward = connection.isdirectionforward;
+            newlink.is_direction_forward = connection.is_direction_forward;
             proof.push(Rc::new(newlink));
             proof.push(next);
         }
@@ -405,7 +407,7 @@ impl<L: Language> History<L> {
                     let mut newlink = (*latest).clone();
                     newlink.children[i] = proof_equal[j].clone();
                     newlink.rule_index = proof_equal[j].rule_index;
-                    newlink.isdirectionforward = proof_equal[j].isdirectionforward;
+                    newlink.is_direction_forward = proof_equal[j].is_direction_forward;
                     proof.push(Rc::new(newlink));
                     latest = proof[proof.len() - 1].clone()
                 }

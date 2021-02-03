@@ -298,16 +298,17 @@ pub fn simple_rules() -> Vec<Rewrite> { vec![
     rw!("assoc-add"; "(+ ?a (+ ?b ?c))" => "(+ (+ ?a ?b) ?c)"),
 ]}
 
-fn check_proof(r: &mut Runner<Math, ConstantFold>, rules: &Vec<Rewrite>, left: &str, right: &str, expected: Vec<&str>) {
-        let proof = r.produce_proof(&[&rules[0], &rules[1]], // WTF
-                                    &left.parse().unwrap(),
-                                    &right.parse().unwrap()).unwrap();
-        assert_eq!(NodeExpr::<Math>::to_strings::<ConstantFold>(&[&rules[0], &rules[1]], &proof),
-                  expected);
+fn check_proof(r: &mut Runner<Math, ConstantFold>, rules: Vec<Rewrite>, left: &str, right: &str, expected: Vec<&str>) {
+    let rule_slice = &rules.iter().collect::<Vec<&Rewrite>>()[..];
+    let proof = r.produce_proof(rule_slice,
+                                &left.parse().unwrap(),
+                                &right.parse().unwrap()).unwrap();
+    assert_eq!(NodeExpr::<Math>::to_strings::<ConstantFold>(rule_slice, &proof),
+                expected);
 }
 
 egg::test_fn! {
-    math_test_proof, simple_rules(),
+    math_test_prove, simple_rules(),
     runner = Runner::default()
         .with_iter_limit(7)
         .with_scheduler(SimpleScheduler),
@@ -315,7 +316,7 @@ egg::test_fn! {
     =>
     "(+ b a)"
     @check |mut r: Runner<Math, ConstantFold>| {
-        check_proof(&mut r, &simple_rules(), "(+ a b)", "(+ b a)", vec!["(+ a b)", "comm-add =>", "(+ b a)"]);
+        check_proof(&mut r, simple_rules(), "(+ a b)", "(+ b a)", vec!["(+ a b)", "comm-add =>", "(+ b a)"]);
     }
 }
 
@@ -328,7 +329,7 @@ egg::test_fn! {
     =>
     "(+ a (+ c b))"
     @check |mut r: Runner<Math, ConstantFold>| {
-        check_proof(&mut r, &simple_rules(), "(+ a (+ b c))",
+        check_proof(&mut r, simple_rules(), "(+ a (+ b c))",
                     "(+ a (+ c b))",
                     vec!["(+ a (+ b c))", "comm-add =>", "(+ a (+ c b))"]);
     }
@@ -336,7 +337,7 @@ egg::test_fn! {
 
 
 egg::test_fn! {
-    math_test_prove_multiple, simple_rules(),
+    math_test_prove_multiple, rules(),
     runner = Runner::default()
         .with_iter_limit(7)
         .with_scheduler(SimpleScheduler),
@@ -344,7 +345,7 @@ egg::test_fn! {
     =>
     "(+ (+ a c) b))"
     @check |mut r: Runner<Math, ConstantFold>| {
-        check_proof(&mut r, &simple_rules(), "(+ a (+ b c))",
+        check_proof(&mut r, rules(), "(+ a (+ b c))",
                     "(+ (+ a c) b))",
                     vec!["(+ a (+ b c))",
                          "comm-add =>",
