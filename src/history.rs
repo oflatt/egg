@@ -1,5 +1,5 @@
 use crate::util::HashMap;
-use crate::{Analysis, Applications, EGraph, Language, RecExpr, Subst, Rewrite, ENodeOrVar, PatternAst};
+use crate::{Analysis, Applications, EGraph, Language, RecExpr, Subst, Rewrite, ENodeOrVar, PatternAst, Id, Var};
 use std::collections::VecDeque;
 use std::rc::Rc;
 
@@ -58,6 +58,7 @@ impl<L: Language> NodeExpr<L> {
         egraph: &mut EGraph<L, N>,
         ast: &PatternAst<L>,
         subst: &Subst,
+        substmap: Option<&HashMap<Var, Rc<NodeExpr<L>>>> // optionally used to replace variables with nodeexpr
     ) -> Self {
         let nodes = ast.as_ref();
         let mut graphexprs: Vec<Rc<NodeExpr<L>>> = Vec::with_capacity(nodes.len());
@@ -88,10 +89,25 @@ impl<L: Language> NodeExpr<L> {
         Rc::try_unwrap(graphexprs.pop().unwrap()).unwrap()
     }
 
-    pub(crate) fn rewrite(&self, left: &PatternAst<L>, right: &PatternAst<L>) -> NodeExpr<L> {
-        let subst: HashMap<Var, Rc<NodeExpr<L>>> = Default::default();
+    fn make_subst(self: &Rc<NodeExpr<L>>, left: &PatternAst<L>, pos: Id, current: &mut HashMap<Var, Rc<NodeExpr<L>>>) {
+        match &left[pos] {
+            ENodeOrVar::Var(v) => {
+                current.insert(*v, self.clone());
+            }
+            ENodeOrVar::ENode(node) => {
+                let mut index = 0;
+                node.for_each(|child| {
+                    self.children[index].clone().make_subst(left, child, current);
+                    index += 1;
+                });
+            }
+        }
+    }
 
-        ...
+    pub(crate) fn rewrite<N: Analysis<L>>(self: &Rc<NodeExpr<L>>, egraph: &mut EGraph<L, N>, left: &PatternAst<L>, right: &PatternAst<L>, subst: &Subst) -> Rc<NodeExpr<L>> {
+        let mut graphsubst = Default::default();
+        self.make_subst(left, Id::from(left.as_ref().len()-1), &mut graphsubst);
+        Rc::new(NodeExpr::<L>::from_pattern_ast::<N>(egraph, right, subst, Some(&graphsubst)))
     }
 }
 
@@ -115,7 +131,6 @@ impl<L: Language> History<L> {
             applications.to_nodes,
             applications.substs
         ) {
-            println!("adding to graph from: {} and to: {}", enode_to_string(&from), enode_to_string(&to));
             let currentfrom = self.graph.get_mut(&from);
             let fromr = RewriteConnection {
                 node: to.clone(),
@@ -230,38 +245,25 @@ impl<L: Language> History<L> {
         left: Rc<NodeExpr<L>>,
         right: Rc<NodeExpr<L>>,
     ) -> Vec<Rc<NodeExpr<L>>> {
+        if(left.node == None && right.node == None) {
+            panic!("Can't prove two holes equal");
+        }
+
+        // empty proof when one of them is a hole
+        if(left.node == None) {
+            return vec![right.clone()];
+        } else if(right.node == None) {
+            return vec![left.clone()];
+        }
+
         let mut proof: Vec<Rc<NodeExpr<L>>> = vec![];
         proof.push(left.clone());
-
-        if(left.node == None || right.node == None) {
-            // empty proof when one of them is a hole
-            return proof;
-        }
 
         let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
 
         // they are equal enodes, prove children equal
         if path.len() == 0 {
-            if left.children.len() != right.children.len() {
-                panic!("Found equal enodes but different number of children");
-            }
-            for i in 0..left.children.len() {
-                let lchild = left.children[i].clone();
-                let rchild = right.children[i].clone();
-                let proof_equal = self.recursive_proof(egraph, rules, lchild, rchild);
-                if proof_equal.len() > 1 {
-                    let mut latest = proof[proof.len()-1].clone();
-                    proof.pop();
-                    for j in 0..proof_equal.len() {
-                        let mut newlink = (*latest).clone();
-                        newlink.children[i] = proof_equal[j].clone();
-                        newlink.rule_index = proof_equal[j].rule_index;
-                        newlink.isdirectionforward = proof_equal[j].isdirectionforward;
-                        proof.push(Rc::new(newlink));
-                        latest = proof[proof.len()-1].clone()
-                    }
-                }
-            }
+            self.prove_children_equal(egraph, rules, right, &mut proof);
             return proof;
         }
 
@@ -270,20 +272,54 @@ impl<L: Language> History<L> {
                 panic!("Rewrites from goal to start are not yet supported");
             }
             let rule = rules[connection.rule_index];
-            let search_pattern = Rc::new(NodeExpr::<L>::from_pattern_ast::<N>(egraph, rule.searcher.get_ast(), &connection.subst));
+            let search_pattern = Rc::new(NodeExpr::<L>::from_pattern_ast::<N>(egraph, rule.searcher.get_ast(), &connection.subst, None));
 
             let subproof = self.recursive_proof(egraph, rules, proof[proof.len()-1].clone(), search_pattern);
             if subproof.len() > 1 {
                 panic!("TODO");
             }
 
-            let latest = proof.pop();
-            let next = latest.rewrite(rule.searcher.get_ast(), rule.applier.get_ast());
-
+            let latest = proof.pop().unwrap();
+            let next = latest.rewrite::<N>(egraph, rule.searcher.get_ast(), rule.applier.get_ast(), &connection.subst);
+            let mut newlink = (*latest).clone();
+            newlink.rule_index = connection.rule_index;
+            newlink.isdirectionforward = connection.isdirectionforward;
+            proof.push(Rc::new(newlink));
+            proof.push(next);
         }
 
         // TODO now that we have arrived at the correct enode, there may yet be work to do on the children
+        self.prove_children_equal(egraph, rules, right, &mut proof);
 
         proof
+    }
+
+    fn prove_children_equal<N: Analysis<L>>(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        rules: &[&Rewrite<L, N>],
+        right: Rc<NodeExpr<L>>,
+        proof: &mut Vec<Rc<NodeExpr<L>>>
+    ) {
+        let left = proof[proof.len()-1].clone();
+        if left.children.len() != right.children.len() {
+            panic!("Found equal enodes but different number of children");
+        }
+        for i in 0..left.children.len() {
+            let lchild = left.children[i].clone();
+            let rchild = right.children[i].clone();
+            let proof_equal = self.recursive_proof(egraph, rules, lchild, rchild);
+            if proof_equal.len() > 1 {
+                let mut latest = proof.pop().unwrap();
+                for j in 0..proof_equal.len() {
+                    let mut newlink = (*latest).clone();
+                    newlink.children[i] = proof_equal[j].clone();
+                    newlink.rule_index = proof_equal[j].rule_index;
+                    newlink.isdirectionforward = proof_equal[j].isdirectionforward;
+                    proof.push(Rc::new(newlink));
+                    latest = proof[proof.len()-1].clone()
+                }
+            }
+        }
     }
 }
