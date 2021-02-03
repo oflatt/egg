@@ -193,19 +193,29 @@ pub fn rules() -> Vec<Rewrite> { vec![
         "(- (* ?a (i ?b ?x)) (i (* (d ?x ?a) (i ?b ?x)) ?x))"),
 ]}
 
+
+#[rustfmt::skip]
+pub fn simple_rules() -> Vec<Rewrite> { vec![
+    rw!("comm-add"; "(+ ?a ?b)" => "(+ ?b ?a)"),
+    rw!("assoc-add"; "(+ ?a (+ ?b ?c))" => "(+ (+ ?a ?b) ?c)"),
+]}
+
 egg::test_fn! {
-    math_test_proof, [
-        rw!("comm-add"; "(+ ?a ?b)" => "(+ ?b ?a)"),
-        rw!("assoc-add"; "(+ ?a (+ ?b ?c))" => "(+ (+ ?a ?b) ?c)"),
-    ],
+    math_test_proof, simple_rules(),
     runner = Runner::default()
         .with_iter_limit(7)
         .with_scheduler(SimpleScheduler),
     "(+ a b)"
     =>
     "(+ b a)"
-    @check |mut r: Runner<Math, ()>| assert_eq!(r.produce_proof(&"(+ a b)".parse().unwrap(),
-                                                                &"(+ b a)".parse().unwrap()).unwrap().len(), 0)
+    @check |mut r: Runner<Math, ConstantFold>| {
+        let rules: Vec<Rewrite> = simple_rules();
+        let proof = r.produce_proof(&[&rules[0], &rules[1]], // WTF
+                                    &"(+ a b)".parse().unwrap(),
+                                    &"(+ b a)".parse().unwrap()).unwrap();
+        assert_eq!(NodeExpr::<Math>::to_strings::<ConstantFold>(&[&rules[0], &rules[1]], &proof), 
+                  vec!["test"]);
+    }
 }
 
 egg::test_fn! {

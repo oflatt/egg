@@ -151,7 +151,9 @@ where
             .collect()
     }
 
-    fn get_ast(&self) -> &PatternAst<L>;
+    fn get_ast(&self) -> Option<&PatternAst<L>> {
+        None
+    }
 
     /// Returns a list of the variables bound by this Searcher
     fn vars(&self) -> Vec<Var>;
@@ -332,7 +334,9 @@ where
         vec![]
     }
 
-    fn get_ast(&self) -> &PatternAst<L>;
+    fn get_ast(&self) -> Option<&PatternAst<L>> {
+        return None;
+    }
 }
 
 /// An [`Applier`] that checks a [`Condition`] before applying.
@@ -365,7 +369,7 @@ where
     A: Applier<L, N>,
     N: Analysis<L>,
 {
-    fn get_ast(&self) -> &PatternAst<L> {
+    fn get_ast(&self) -> Option<&PatternAst<L>> {
         self.applier.get_ast()
     }
 

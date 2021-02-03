@@ -30,7 +30,7 @@ fn enode_to_string<L: Language>(node_ref: &L) -> String {
 }
 
 impl<L: Language> NodeExpr<L> {
-    pub(crate) fn to_strings<N: Analysis<L>>(rules: &[&Rewrite<L, N>], exprs: &Vec<Rc<NodeExpr<L>>>) -> Vec<String> {
+    pub fn to_strings<N: Analysis<L>>(rules: &[&Rewrite<L, N>], exprs: &Vec<Rc<NodeExpr<L>>>) -> Vec<String> {
         let mut res = vec![];
         for i in exprs {
             res.push(i.to_string());
@@ -40,7 +40,7 @@ impl<L: Language> NodeExpr<L> {
         res
     }
 
-    pub(crate) fn to_sexp(&self) -> Sexp {
+    pub fn to_sexp(&self) -> Sexp {
         match &self.node {
             Some(node) => {
                 let mut vec = vec![Sexp::String(node.display_op().to_string())];
@@ -53,11 +53,11 @@ impl<L: Language> NodeExpr<L> {
         }
     }
 
-    pub(crate) fn to_string(&self) -> String {
+    pub fn to_string(&self) -> String {
         self.to_sexp().to_string()
     }
 
-    pub(crate) fn connection_string<N: Analysis<L>>(&self, rules: &[&Rewrite<L, N>]) -> String {
+    pub fn connection_string<N: Analysis<L>>(&self, rules: &[&Rewrite<L, N>]) -> String {
         if(self.isdirectionforward) {
             rules[self.rule_index].name.to_string() + &"=>".to_string()
         } else {
@@ -309,7 +309,15 @@ impl<L: Language> History<L> {
                 panic!("Rewrites from goal to start are not yet supported");
             }
             let rule = rules[connection.rule_index];
-            let search_pattern = Rc::new(NodeExpr::<L>::from_pattern_ast::<N>(egraph, rule.searcher.get_ast(), &connection.subst, None));
+            let sast = rule.searcher.get_ast();
+            if sast == None {
+                panic!("Searcher must implement get_ast function");
+            }
+            let rast = rule.applier.get_ast();
+            if rast == None {
+                panic!("Applier must implement get_ast function");
+            }
+            let search_pattern = Rc::new(NodeExpr::<L>::from_pattern_ast::<N>(egraph, sast.unwrap(), &connection.subst, None));
 
             let subproof = self.recursive_proof(egraph, rules, proof[proof.len()-1].clone(), search_pattern);
             if subproof.len() > 1 {
@@ -317,7 +325,7 @@ impl<L: Language> History<L> {
             }
 
             let latest = proof.pop().unwrap();
-            let next = latest.rewrite::<N>(egraph, rule.searcher.get_ast(), rule.applier.get_ast(), &connection.subst);
+            let next = latest.rewrite::<N>(egraph, sast.unwrap(), rast.unwrap(), &connection.subst);
             let mut newlink = (*latest).clone();
             newlink.rule_index = connection.rule_index;
             newlink.isdirectionforward = connection.isdirectionforward;

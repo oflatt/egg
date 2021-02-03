@@ -203,8 +203,8 @@ pub struct SearchMatches<L> {
 }
 
 impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
-    fn get_ast(&self) -> &PatternAst<L> {
-        &self.ast
+    fn get_ast(&self) -> Option<&PatternAst<L>> {
+        Some(&self.ast)
     }
 
     fn search(&self, egraph: &EGraph<L, A>) -> Vec<SearchMatches<L>> {
@@ -258,8 +258,8 @@ where
     L: Language,
     A: Analysis<L>,
 {
-    fn get_ast(&self) -> &PatternAst<L> {
-        &self.ast
+    fn get_ast(&self) -> Option<&PatternAst<L>> {
+        Some(&self.ast)
     }
 
     fn apply_one(
