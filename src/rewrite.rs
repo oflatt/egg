@@ -151,6 +151,8 @@ where
             .collect()
     }
 
+    fn get_ast(&self) -> &PatternAst<L>;
+
     /// Returns a list of the variables bound by this Searcher
     fn vars(&self) -> Vec<Var>;
 }
@@ -329,6 +331,8 @@ where
     fn vars(&self) -> Vec<Var> {
         vec![]
     }
+
+    fn get_ast(&self) -> &PatternAst<L>;
 }
 
 /// An [`Applier`] that checks a [`Condition`] before applying.
@@ -361,6 +365,10 @@ where
     A: Applier<L, N>,
     N: Analysis<L>,
 {
+    fn get_ast(&self) -> &PatternAst<L> {
+        self.applier.get_ast()
+    }
+
     fn apply_one(
         &self,
         egraph: &mut EGraph<L, N>,

@@ -1,5 +1,5 @@
 use crate::util::HashMap;
-use crate::{Analysis, Applications, EGraph, Language, RecExpr, Subst, Rewrite};
+use crate::{Analysis, Applications, EGraph, Language, RecExpr, Subst, Rewrite, ENodeOrVar, PatternAst};
 use std::collections::VecDeque;
 use std::rc::Rc;
 
@@ -49,6 +49,40 @@ impl<L: Language> GraphExpr<L> {
             });
             graphexprs.push(expr);
             new_ids.push(egraph.add(graphnode));
+        }
+        // unwrap last graphexpr, the top node
+        Rc::try_unwrap(graphexprs.pop().unwrap()).unwrap()
+    }
+
+    pub(crate) fn from_pattern_ast<N: Analysis<L>>(
+        egraph: &mut EGraph<L, N>,
+        ast: &PatternAst<L>,
+        subst: &Subst,
+    ) -> Self {
+        let nodes = ast.as_ref();
+        let mut graphexprs: Vec<Rc<GraphExpr<L>>> = Vec::with_capacity(nodes.len());
+        let mut new_ids = Vec::with_capacity(nodes.len());
+        for nodeorvar in nodes {
+            match nodeorvar {
+                ENodeOrVar::Var(v) => {
+                    graphexprs.push(Rc::new(GraphExpr { node: None, children: vec![], rule_index: 0, isdirectionforward: true }));
+                    new_ids.push(subst[*v]);
+                }
+                ENodeOrVar::ENode(node) => {
+                    let mut children: Vec<Rc<GraphExpr<L>>> = vec![];
+                    node.for_each(|i| children.push(graphexprs[usize::from(i)].clone()));
+                    let graphnode = node.clone().map_children(|i| new_ids[usize::from(i)]);
+
+                    let expr = Rc::new(GraphExpr {
+                        node: Some(graphnode.clone()),
+                        children: children,
+                        rule_index: 0, // dummy value
+                        isdirectionforward: true,
+                    });
+                    graphexprs.push(expr);
+                    new_ids.push(egraph.add(graphnode));       
+                }
+            }
         }
         // unwrap last graphexpr, the top node
         Rc::try_unwrap(graphexprs.pop().unwrap()).unwrap()
@@ -192,8 +226,14 @@ impl<L: Language> History<L> {
     ) -> Vec<Rc<GraphExpr<L>>> {
         let mut proof: Vec<Rc<GraphExpr<L>>> = vec![];
         proof.push(left.clone());
+
+        if(left.node == None || right.node == None) {
+            // empty proof when one of them is a hole
+            return proof;
+        }
+
         let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
-        
+
         // they are equal enodes, prove children equal
         if path.len() == 0 {
             if left.children.len() != right.children.len() {
@@ -219,8 +259,11 @@ impl<L: Language> History<L> {
         }
 
         for connection in path.iter() {
+            if !connection.isdirectionforward {
+                panic!("Rewrites from goal to start are not yet supported");
+            }
             let rule = rules[connection.rule_index];
-            
+            let search_pattern = GraphExpr::<L>::from_pattern_ast::<N>(egraph, rule.searcher.get_ast(), &connection.subst);
         }
 
         proof

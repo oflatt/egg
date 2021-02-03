@@ -203,6 +203,10 @@ pub struct SearchMatches<L> {
 }
 
 impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
+    fn get_ast(&self) -> &PatternAst<L> {
+        &self.ast
+    }
+
     fn search(&self, egraph: &EGraph<L, A>) -> Vec<SearchMatches<L>> {
         match self.ast.as_ref().last().unwrap() {
             ENodeOrVar::ENode(e) => {
@@ -254,6 +258,10 @@ where
     L: Language,
     A: Analysis<L>,
 {
+    fn get_ast(&self) -> &PatternAst<L> {
+        &self.ast
+    }
+
     fn apply_one(
         &self,
         egraph: &mut EGraph<L, A>,
