@@ -1,5 +1,6 @@
 use indexmap::IndexMap;
 use instant::{Duration, Instant};
+use std::rc::Rc;
 use log::*;
 
 use crate::*;
@@ -487,10 +488,11 @@ where
 
     pub fn produce_proof(
         &mut self,
+        rules: &[&Rewrite<L, N>],
         left: &RecExpr<L>,
         right: &RecExpr<L>,
-    ) -> Option<Vec<GraphExpr<L>>> {
-        self.history.produce_proof(&mut self.egraph, left, right)
+    ) -> Option<Vec<Rc<GraphExpr<L>>>> {
+        self.history.produce_proof(&mut self.egraph, rules, left, right)
     }
 
     fn try_start(&mut self) {
