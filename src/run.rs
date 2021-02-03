@@ -491,7 +491,7 @@ where
         rules: &[&Rewrite<L, N>],
         left: &RecExpr<L>,
         right: &RecExpr<L>,
-    ) -> Option<Vec<Rc<GraphExpr<L>>>> {
+    ) -> Option<Vec<Rc<NodeExpr<L>>>> {
         self.history.produce_proof(&mut self.egraph, rules, left, right)
     }
 

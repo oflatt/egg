@@ -12,9 +12,9 @@ struct RewriteConnection<L: Language> {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct GraphExpr<L: Language> {
+pub struct NodeExpr<L: Language> {
     node: Option<L>, // sometimes we have a hole
-    children: Vec<Rc<GraphExpr<L>>>,
+    children: Vec<Rc<NodeExpr<L>>>,
     rule_index: usize,
     isdirectionforward: bool,
 }
@@ -28,20 +28,20 @@ fn enode_to_string<L: Language>(node_ref: &L) -> String {
     strings.concat()
 }
 
-impl<L: Language> GraphExpr<L> {
+impl<L: Language> NodeExpr<L> {
     pub(crate) fn from_recexpr<N: Analysis<L>>(
         egraph: &mut EGraph<L, N>,
         expr: &RecExpr<L>,
     ) -> Self {
         let nodes = expr.as_ref();
-        let mut graphexprs: Vec<Rc<GraphExpr<L>>> = Vec::with_capacity(nodes.len());
+        let mut graphexprs: Vec<Rc<NodeExpr<L>>> = Vec::with_capacity(nodes.len());
         let mut new_ids = Vec::with_capacity(nodes.len());
         for node in nodes {
-            let mut children: Vec<Rc<GraphExpr<L>>> = vec![];
+            let mut children: Vec<Rc<NodeExpr<L>>> = vec![];
             node.for_each(|i| children.push(graphexprs[usize::from(i)].clone()));
             let graphnode = node.clone().map_children(|i| new_ids[usize::from(i)]);
 
-            let expr = Rc::new(GraphExpr {
+            let expr = Rc::new(NodeExpr {
                 node: Some(graphnode.clone()),
                 children: children,
                 rule_index: 0, // dummy value
@@ -60,20 +60,20 @@ impl<L: Language> GraphExpr<L> {
         subst: &Subst,
     ) -> Self {
         let nodes = ast.as_ref();
-        let mut graphexprs: Vec<Rc<GraphExpr<L>>> = Vec::with_capacity(nodes.len());
+        let mut graphexprs: Vec<Rc<NodeExpr<L>>> = Vec::with_capacity(nodes.len());
         let mut new_ids = Vec::with_capacity(nodes.len());
         for nodeorvar in nodes {
             match nodeorvar {
                 ENodeOrVar::Var(v) => {
-                    graphexprs.push(Rc::new(GraphExpr { node: None, children: vec![], rule_index: 0, isdirectionforward: true }));
+                    graphexprs.push(Rc::new(NodeExpr { node: None, children: vec![], rule_index: 0, isdirectionforward: true }));
                     new_ids.push(subst[*v]);
                 }
                 ENodeOrVar::ENode(node) => {
-                    let mut children: Vec<Rc<GraphExpr<L>>> = vec![];
+                    let mut children: Vec<Rc<NodeExpr<L>>> = vec![];
                     node.for_each(|i| children.push(graphexprs[usize::from(i)].clone()));
                     let graphnode = node.clone().map_children(|i| new_ids[usize::from(i)]);
 
-                    let expr = Rc::new(GraphExpr {
+                    let expr = Rc::new(NodeExpr {
                         node: Some(graphnode.clone()),
                         children: children,
                         rule_index: 0, // dummy value
@@ -167,12 +167,12 @@ impl<L: Language> History<L> {
         rules: &[&Rewrite<L, N>],
         left: &RecExpr<L>,
         right: &RecExpr<L>,
-    ) -> Option<Vec<Rc<GraphExpr<L>>>> {
+    ) -> Option<Vec<Rc<NodeExpr<L>>>> {
         if egraph.add_expr(&left) != egraph.add_expr(&right) {
             return None;
         } else {
-            let lg = Rc::new(GraphExpr::<L>::from_recexpr::<N>(egraph, left));
-            let rg = Rc::new(GraphExpr::<L>::from_recexpr::<N>(egraph, right));
+            let lg = Rc::new(NodeExpr::<L>::from_recexpr::<N>(egraph, left));
+            let rg = Rc::new(NodeExpr::<L>::from_recexpr::<N>(egraph, right));
             return Some(self.recursive_proof(egraph, rules, lg, rg));
         }
     }
@@ -221,10 +221,10 @@ impl<L: Language> History<L> {
         &self,
         egraph: &mut EGraph<L, N>,
         rules: &[&Rewrite<L, N>],
-        left: Rc<GraphExpr<L>>,
-        right: Rc<GraphExpr<L>>,
-    ) -> Vec<Rc<GraphExpr<L>>> {
-        let mut proof: Vec<Rc<GraphExpr<L>>> = vec![];
+        left: Rc<NodeExpr<L>>,
+        right: Rc<NodeExpr<L>>,
+    ) -> Vec<Rc<NodeExpr<L>>> {
+        let mut proof: Vec<Rc<NodeExpr<L>>> = vec![];
         proof.push(left.clone());
 
         if(left.node == None || right.node == None) {
@@ -263,7 +263,7 @@ impl<L: Language> History<L> {
                 panic!("Rewrites from goal to start are not yet supported");
             }
             let rule = rules[connection.rule_index];
-            let search_pattern = GraphExpr::<L>::from_pattern_ast::<N>(egraph, rule.searcher.get_ast(), &connection.subst);
+            let search_pattern = NodeExpr::<L>::from_pattern_ast::<N>(egraph, rule.searcher.get_ast(), &connection.subst);
         }
 
         proof
