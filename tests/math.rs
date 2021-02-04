@@ -392,6 +392,17 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
+    math_test_prove_simple_match_single_var, rules(),
+    "a" => "(+ (+ (+ a 0) 0) 0)"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        check_proof(&mut r, rules(), "a",
+                    "(+ (+ (+ a 0) 0) 0)",
+                    vec!["(=> a)", "add-zero =>", "(+ (=> a) 0)", "add-zero =>",
+                         "(+ (+ (=> a) 0) 0)", "add-zero =>", "(+ (+ (+ a 0) 0) 0)"]);  
+    }  
+}
+
+egg::test_fn! {
     math_test_prove_simplify_const, rules(),
     "(+ 1 (- a (* (- 2 1) a)))" => "1"
     @check |mut r: Runner<Math, ConstantFold>| {

@@ -324,7 +324,9 @@ impl<L: Language> History<L> {
     // find a sequence of rewrites between two enodes
     // this performs a breadth first search to find the one unique path in the graph
     fn find_proof_path(&self, left: &L, right: &L) -> Vec<&RewriteConnection<L>> {
+        println!("Find proof path of {} and {}", enode_to_string(left), enode_to_string(right));
         if (left == right) {
+            println!("they are equal");
             return vec![];
         }
         let mut prev_node: HashMap<&L, &L> = Default::default();
@@ -371,7 +373,6 @@ impl<L: Language> History<L> {
         left: Rc<NodeExpr<L>>,
         right: Rc<NodeExpr<L>>,
     ) -> Vec<Rc<NodeExpr<L>>> {
-        println!("proving {} and {}", left.to_string(), right.to_string());
 
         if (left.node == None && right.node == None) {
             panic!("Can't prove two holes equal");
@@ -388,6 +389,7 @@ impl<L: Language> History<L> {
         proof.push(left.clone());
 
         let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
+        println!("{}", path.len());
 
         for connection in path.iter() {
             let mut sast = match &connection.rule_ref {
@@ -418,6 +420,8 @@ impl<L: Language> History<L> {
             ));
 
             // first prove it matches the search_pattern
+            println!("proving {} and {}", proof[proof.len()-1].to_string(), right.to_string());
+            println!("proving matches searcher {}", search_pattern.to_string());
             let subproof = self.recursive_proof(
                 egraph,
                 rules,

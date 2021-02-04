@@ -117,7 +117,6 @@ impl Machine {
 
         // if topenode is none, then we must have matched a variable on the LHS
         // in this case just pick a representative
-        // this is going to break if we have an (a => a) rule
         let top = topenode
             .clone()
             .unwrap_or_else(|| {
