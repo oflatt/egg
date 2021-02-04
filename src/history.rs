@@ -119,19 +119,19 @@ impl<L: Language> NodeExpr<L> {
         expr: &RecExpr<L>,
     ) -> Self {
         let nodes = expr.as_ref();
-        let mut graphexprs: Vec<Rc<NodeExpr<L>>> = Vec::with_capacity(nodes.len());
+        let mut nodeexprs: Vec<Rc<NodeExpr<L>>> = Vec::with_capacity(nodes.len());
         let mut new_ids = Vec::with_capacity(nodes.len());
         for node in nodes {
             let mut children: Vec<Rc<NodeExpr<L>>> = vec![];
-            node.for_each(|i| children.push(graphexprs[usize::from(i)].clone()));
+            node.for_each(|i| children.push(nodeexprs[usize::from(i)].clone()));
             let graphnode = node.clone().map_children(|i| new_ids[usize::from(i)]);
 
             let expr = Rc::new(NodeExpr::new(Some(graphnode.clone()), children));
-            graphexprs.push(expr);
+            nodeexprs.push(expr);
             new_ids.push(egraph.add(graphnode));
         }
-        // unwrap last graphexpr, the top node
-        Rc::try_unwrap(graphexprs.pop().unwrap()).unwrap()
+        // unwrap last nodeexpr, the top node
+        Rc::try_unwrap(nodeexprs.pop().unwrap()).unwrap()
     }
 
     pub(crate) fn from_pattern_ast<N: Analysis<L>>(
@@ -141,31 +141,32 @@ impl<L: Language> NodeExpr<L> {
         substmap: Option<&HashMap<Var, Rc<NodeExpr<L>>>>, // optionally used to replace variables with nodeexpr
     ) -> Self {
         let nodes = ast.as_ref();
-        let mut graphexprs: Vec<Rc<NodeExpr<L>>> = Vec::with_capacity(nodes.len());
+        let mut nodeexprs: Vec<Rc<NodeExpr<L>>> = Vec::with_capacity(nodes.len());
         let mut new_ids = Vec::with_capacity(nodes.len());
         for nodeorvar in nodes {
             match nodeorvar {
                 ENodeOrVar::Var(v) => {
                     if let Some(map) = substmap {
-                        graphexprs.push(map.get(v).unwrap().clone());
+                        nodeexprs.push(map.get(v).unwrap().clone());
                     } else {
-                        graphexprs.push(Rc::new(NodeExpr::new(None, vec![])));
+                        nodeexprs.push(Rc::new(NodeExpr::new(None, vec![])));
                     }
                     new_ids.push(subst[*v]);
                 }
                 ENodeOrVar::ENode(node) => {
                     let mut children: Vec<Rc<NodeExpr<L>>> = vec![];
-                    node.for_each(|i| children.push(graphexprs[usize::from(i)].clone()));
+                    node.for_each(|i| children.push(nodeexprs[usize::from(i)].clone()));
                     let graphnode = node.clone().map_children(|i| new_ids[usize::from(i)]);
 
                     let expr = Rc::new(NodeExpr::new(Some(graphnode.clone()), children));
-                    graphexprs.push(expr);
+                    nodeexprs.push(expr);
                     new_ids.push(egraph.add(graphnode));
                 }
             }
         }
-        // unwrap last graphexpr, the top node
-        Rc::try_unwrap(graphexprs.pop().unwrap()).unwrap()
+        
+        // last nodeexpr, the top node
+        (*nodeexprs.pop().unwrap()).clone()
     }
 
     fn make_subst(
@@ -176,7 +177,9 @@ impl<L: Language> NodeExpr<L> {
     ) {
         match &left[pos] {
             ENodeOrVar::Var(v) => {
-                current.insert(*v, self.clone());
+                if current.get(v) == None {
+                    current.insert(*v, self.clone());
+                }
             }
             ENodeOrVar::ENode(node) => {
                 let mut index = 0;
@@ -414,6 +417,7 @@ impl<L: Language> History<L> {
                 None,
             ));
 
+            // first prove it matches the search_pattern
             let subproof = self.recursive_proof(
                 egraph,
                 rules,
@@ -424,6 +428,20 @@ impl<L: Language> History<L> {
                 proof.pop();
                 proof.extend(subproof);
             }
+
+            // now prove that matching variables are the same, as in (- a a)
+            let matched_search = proof.pop().unwrap();
+            let mut leftsubst = Default::default();
+            matched_search.make_subst(&sast, Id::from(sast.as_ref().len() - 1), &mut leftsubst);
+            let search_pattern_substituted = Rc::new(NodeExpr::from_pattern_ast::<N>(
+                egraph,
+                sast,
+                &connection.subst,
+                Some(&leftsubst)
+            ));
+            println!("Now proved with children {}", search_pattern_substituted.to_string());
+            let subproof2 = self.recursive_proof(egraph, rules, matched_search.clone(), search_pattern_substituted);
+            proof.extend(subproof2);
 
             let latest = proof.pop().unwrap();
             let next = latest.rewrite::<N>(egraph, sast, rast, &connection.subst);
