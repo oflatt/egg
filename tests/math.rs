@@ -48,32 +48,57 @@ impl egg::CostFunction<Math> for MathCostFn {
 #[derive(Default)]
 pub struct ConstantFold;
 impl Analysis<Math> for ConstantFold {
-    type Data = Option<Constant>;
+    type Data = Option<(Constant, PatternAst<Math>)>;
 
     fn merge(&self, to: &mut Self::Data, from: Self::Data) -> bool {
         if let (Some(c1), Some(c2)) = (to.as_ref(), from.as_ref()) {
-            assert_eq!(c1, c2);
+            assert_eq!(c1.0, c2.0);
         }
-        merge_if_different(to, to.or(from))
+        merge_if_different(to, to.clone().or(from.clone()))
     }
 
     fn make(egraph: &EGraph, enode: &Math) -> Self::Data {
-        let x = |i: &Id| egraph[*i].data;
-        Some(match enode {
-            Math::Constant(c) => *c,
-            Math::Add([a, b]) => x(a)? + x(b)?,
-            Math::Sub([a, b]) => x(a)? - x(b)?,
-            Math::Mul([a, b]) => x(a)? * x(b)?,
-            Math::Div([a, b]) if x(b) != Some(0.0.into()) => x(a)? / x(b)?,
-            _ => return None,
-        })
+        let x = |i: &Id| egraph[*i].data.clone().map(|x| x.0);
+        Some((
+            match enode {
+                Math::Constant(c) => *c,
+                Math::Add([a, b]) => x(a)? + x(b)?,
+                Math::Sub([a, b]) => x(a)? - x(b)?,
+                Math::Mul([a, b]) => x(a)? * x(b)?,
+                Math::Div([a, b]) if x(b) != Some(0.0.into()) => x(a)? / x(b)?,
+                _ => return None,
+            },
+            {
+                let pattern: PatternAst<Math> = Default::default();
+                enode.for_each(|child| {
+                    pattern.add(ENodeOrVar::ENode(Math::Constant(x(child).unwrap())));
+                });
+                let mut counter = 0;
+                let mut head = enode.clone();
+                head.for_each_mut(|&mut child| {
+                    *child = counter;
+                });
+                pattern.add(head);
+                pattern
+            },
+        ))
     }
 
     fn modify(egraph: &mut EGraph, id: Id) {
         let class = &mut egraph[id];
-        if let Some(c) = class.data {
+        if let Some((c, node)) = class.data.clone() {
             let added = egraph.add(Math::Constant(c));
-            let (id, _did_something) = egraph.union(id, added);
+            let (id, did_something) = egraph.union(id, added);
+            if did_something {
+                let const_pattern: PatternAst<Math> = Default::default();
+                const_pattern.add(ENodeOrVar::ENode(Math::Constant(C)));
+                egraph.add_union_proof(
+                    node,
+                    const_pattern,
+                    Default::default(),
+                    "metadata-eval".to_string(),
+                );
+            }
             // to not prune, comment this out
             egraph[id].nodes.retain(|n| n.is_leaf());
 
@@ -361,5 +386,17 @@ egg::test_fn! {
                          "(=> (+ a (+ c b)))",
                          "assoc-add =>",
                          "(+ (+ a c) b)"]);
+    }
+}
+
+egg::test_fn! {
+    math_test_prove_simplify_const, rules(),
+    "(+ 1 (- a (* (- 2 1) a)))" => "1"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        check_proof(&mut r, rules(), "(+ 1 (- a (* (- 2 1) a)))",
+                    "1",
+                    vec!["(+ 1 (- a (* (=> (- 2 1)) a)))",
+                         "metadata-eval"]);
+
     }
 }

@@ -73,7 +73,7 @@ pub use {
     eclass::EClass,
     egraph::EGraph,
     extract::*,
-    history::NodeExpr,
+    history::{NodeExpr, Proof},
     language::*,
     pattern::{Applications, ENodeOrVar, Pattern, PatternAst, SearchMatches},
     rewrite::{Applier, Condition, ConditionEqual, ConditionalApplier, Rewrite, Searcher},

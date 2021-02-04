@@ -159,8 +159,6 @@ pub struct Runner<L: Language, N: Analysis<L>, IterData = ()> {
 
     start_time: Option<Instant>,
     scheduler: Box<dyn RewriteScheduler<L, N>>,
-
-    history: History<L>,
 }
 
 impl<L, N> Default for Runner<L, N, ()>
@@ -253,8 +251,6 @@ where
 
             start_time: None,
             scheduler: Box::new(BackoffScheduler::default()),
-
-            history: History::default(),
         }
     }
 
@@ -351,7 +347,11 @@ where
             }
         }
 
-        self.history.rebuild::<N>(&self.egraph);
+        // swap around so we can pass egraph into hist
+        let mut hist = Default::default();
+        std::mem::swap(&mut self.egraph.history, &mut hist);
+        hist.rebuild::<N>(&self.egraph);
+        std::mem::swap(&mut self.egraph.history, &mut hist);
 
         assert!(!self.iterations.is_empty());
         assert!(self.stop_reason.is_some());
@@ -442,7 +442,7 @@ where
                     }
                     debug!("Applied {} {} times", rw.name(), actually_matched);
                 }
-                self.history.add_applications(applications, counter);
+                self.egraph.history.add_applications(applications, counter);
                 counter += 1;
                 self.check_limits()
             })
@@ -491,9 +491,8 @@ where
         rules: &[&Rewrite<L, N>],
         left: &RecExpr<L>,
         right: &RecExpr<L>,
-    ) -> Option<Vec<Rc<NodeExpr<L>>>> {
-        self.history
-            .produce_proof(&mut self.egraph, rules, left, right)
+    ) -> Option<Proof<L>> {
+        self.egraph.produce_proof(rules, left, right)
     }
 
     fn try_start(&mut self) {

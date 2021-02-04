@@ -7,7 +7,8 @@ use std::{
 use log::*;
 
 use crate::{
-    Analysis, AstSize, Dot, EClass, Extractor, Id, Language, Pattern, RecExpr, Searcher, UnionFind,
+    Analysis, AstSize, Dot, EClass, Extractor, History, Id, Language, Pattern, PatternAst, Proof,
+    RecExpr, Rewrite, Searcher, Subst, UnionFind,
 };
 
 /** A data structure to keep track of equalities between expressions.
@@ -56,6 +57,8 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
     dirty_unions: Vec<Id>,
     repairs_since_rebuild: usize,
     pub(crate) classes_by_op: HashMap<std::mem::Discriminant<L>, HashSet<Id>>,
+
+    pub(crate) history: History<L>,
 }
 
 impl<L: Language, N: Analysis<L> + Default> Default for EGraph<L, N> {
@@ -85,6 +88,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             dirty_unions: Default::default(),
             classes_by_op: Default::default(),
             repairs_since_rebuild: 0,
+            history: Default::default(),
         }
     }
 
@@ -389,6 +393,33 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// [`Debug`]: std::fmt::Debug
     pub fn dump(&self) -> impl Debug + '_ {
         EGraphDump(self)
+    }
+
+    pub fn produce_proof(
+        &mut self,
+        rules: &[&Rewrite<L, N>],
+        left: &RecExpr<L>,
+        right: &RecExpr<L>,
+    ) -> Option<Proof<L>> {
+        // swap around so we can pass egraph into hist
+        let mut hist = Default::default();
+        std::mem::swap(&mut self.history, &mut hist);
+        let proof = hist.produce_proof(self, rules, left, right);
+        std::mem::swap(&mut self.history, &mut hist);
+        proof
+    }
+
+    pub fn add_union_proof(
+        &mut self,
+        from: PatternAst<L>,
+        to: PatternAst<L>,
+        subst: Subst,
+        reason: String,
+    ) {
+        let mut hist = Default::default();
+        std::mem::swap(&mut self.history, &mut hist);
+        hist.add_union_proof(self, from, to, subst, reason);
+        std::mem::swap(&mut self.history, &mut hist);
     }
 }
 

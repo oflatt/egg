@@ -7,19 +7,27 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 use symbolic_expressions::Sexp;
 
+pub type Proof<L> = Vec<Rc<NodeExpr<L>>>;
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum RuleReference<L> {
+    Index(usize),
+    Pattern((PatternAst<L>, PatternAst<L>, String)),
+}
+
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 struct RewriteConnection<L: Language> {
     node: L,
-    rule_index: usize,
     subst: Subst,
     is_direction_forward: bool,
+    rule_ref: RuleReference<L>,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct NodeExpr<L: Language> {
     node: Option<L>, // sometimes we have a hole
     children: Vec<Rc<NodeExpr<L>>>,
-    rule_index: usize,
+    rule_ref: RuleReference<L>,
     is_direction_forward: bool,
     is_being_rewritten: bool,
 }
@@ -38,7 +46,7 @@ impl<L: Language> NodeExpr<L> {
         NodeExpr {
             node: node,
             children: children,
-            rule_index: 0,
+            rule_ref: RuleReference::Index(0),
             is_direction_forward: true,
             is_being_rewritten: false,
         }
@@ -88,10 +96,17 @@ impl<L: Language> NodeExpr<L> {
     }
 
     pub fn connection_string<N: Analysis<L>>(&self, rules: &[&Rewrite<L, N>]) -> String {
-        if (self.is_direction_forward) {
-            rules[self.rule_index].name.to_string() + &" =>".to_string()
-        } else {
-            "<= ".to_string() + &rules[self.rule_index].name.to_string()
+        match &self.rule_ref {
+            RuleReference::Pattern((_l, _r, reason)) => {
+                return reason.clone();    
+            }
+            RuleReference::Index(rule_index) => {
+                if (self.is_direction_forward) {
+                    rules[*rule_index].name.to_string() + &" =>".to_string()
+                } else {
+                    "<= ".to_string() + &rules[*rule_index].name.to_string()
+                }
+            }
         }
     }
 
@@ -189,6 +204,7 @@ impl<L: Language> NodeExpr<L> {
     }
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct History<L: Language> {
     // actually a set of trees, since each newenode is unioned only once with another enode
     graph: HashMap<L, Vec<RewriteConnection<L>>>,
@@ -203,39 +219,61 @@ impl<L: Language> Default for History<L> {
 }
 
 impl<L: Language> History<L> {
+    fn add_connection(&mut self, from: L, to: L, rule: RuleReference<L>, subst: Subst) {
+        let currentfrom = self.graph.get_mut(&from);
+        let fromr = RewriteConnection {
+            node: to.clone(),
+            rule_ref: rule.clone(),
+            subst: subst.clone(),
+            is_direction_forward: true,
+        };
+
+        if let Some(v) = currentfrom {
+            v.push(fromr);
+        } else {
+            self.graph.insert(from.clone(), vec![fromr]);
+        }
+
+        let currentto = self.graph.get_mut(&to);
+        let tor = RewriteConnection {
+            node: from,
+            rule_ref: rule,
+            subst: subst,
+            is_direction_forward: false,
+        };
+
+        if let Some(v) = currentto {
+            v.push(tor);
+        } else {
+            self.graph.insert(to, vec![tor]);
+        }
+    }
+
+    pub(crate) fn add_union_proof<N: Analysis<L>>(
+        &mut self,
+        egraph: &mut EGraph<L, N>,
+        from: PatternAst<L>,
+        to: PatternAst<L>,
+        subst: Subst,
+        reason: String,
+    ) {
+        let from_node = NodeExpr::from_pattern_ast(egraph, &from, &subst, None);
+        let to_node = NodeExpr::from_pattern_ast(egraph, &to, &subst, None);
+        self.add_connection(
+            from_node.node.unwrap(),
+            to_node.node.unwrap(),
+            RuleReference::Pattern((from, to, reason)),
+            subst,
+        );
+    }
+
     pub(crate) fn add_applications(&mut self, applications: Applications<L>, rule: usize) {
         for (from, to, subst) in izip!(
             applications.from_nodes,
             applications.to_nodes,
             applications.substs
         ) {
-            let currentfrom = self.graph.get_mut(&from);
-            let fromr = RewriteConnection {
-                node: to.clone(),
-                rule_index: rule,
-                subst: subst.clone(),
-                is_direction_forward: true,
-            };
-
-            if let Some(v) = currentfrom {
-                v.push(fromr);
-            } else {
-                self.graph.insert(from.clone(), vec![fromr]);
-            }
-
-            let currentto = self.graph.get_mut(&to);
-            let tor = RewriteConnection {
-                node: from,
-                rule_index: rule,
-                subst: subst,
-                is_direction_forward: false,
-            };
-
-            if let Some(v) = currentto {
-                v.push(tor);
-            } else {
-                self.graph.insert(to, vec![tor]);
-            }
+            self.add_connection(from, to, RuleReference::Index(rule), subst);
         }
     }
 
@@ -266,7 +304,7 @@ impl<L: Language> History<L> {
         rules: &[&Rewrite<L, N>],
         left: &RecExpr<L>,
         right: &RecExpr<L>,
-    ) -> Option<Vec<Rc<NodeExpr<L>>>> {
+    ) -> Option<Proof<L>> {
         if egraph.add_expr(&left) != egraph.add_expr(&right) {
             return None;
         } else {
@@ -282,7 +320,7 @@ impl<L: Language> History<L> {
         if (left == right) {
             return vec![];
         }
-        let mut prevNode: HashMap<&L, &L> = Default::default();
+        let mut prev_node: HashMap<&L, &L> = Default::default();
         let mut prev: HashMap<&L, &RewriteConnection<L>> = Default::default();
         let mut todo: VecDeque<&L> = VecDeque::new();
         todo.push_back(left);
@@ -297,7 +335,7 @@ impl<L: Language> History<L> {
                 let mut found = false;
                 for child in children {
                     prev.insert(&child.node, child);
-                    prevNode.insert(&child.node, current);
+                    prev_node.insert(&child.node, current);
                     if (&child.node == right) {
                         found = true;
                         break;
@@ -313,7 +351,7 @@ impl<L: Language> History<L> {
         let mut current: &L = right;
         while (current != left) {
             path.push(*prev.get(current).unwrap());
-            current = prevNode.get(current).unwrap();
+            current = prev_node.get(current).unwrap();
         }
         path.reverse();
         path
@@ -343,21 +381,29 @@ impl<L: Language> History<L> {
         let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
 
         for connection in path.iter() {
+            let mut sast = match &connection.rule_ref {
+                RuleReference::Index(i) => rules[*i]
+                    .searcher
+                    .get_ast()
+                    .unwrap_or(panic!("Applier must implement get_ast function")),
+                RuleReference::Pattern((left, _right, _reaon)) => &left,
+            };
+
+            let mut rast = match &connection.rule_ref {
+                RuleReference::Index(i) => rules[*i]
+                    .applier
+                    .get_ast()
+                    .unwrap_or(panic!("Applier must implement get_ast function")),
+                RuleReference::Pattern((_left, right, _reaon)) => right,
+            };
+
             if !connection.is_direction_forward {
-                panic!("Rewrites from goal to start are not yet supported");
+                std::mem::swap(&mut sast, &mut rast);
             }
-            let rule = rules[connection.rule_index];
-            let sast = rule.searcher.get_ast();
-            if sast == None {
-                panic!("Searcher must implement get_ast function");
-            }
-            let rast = rule.applier.get_ast();
-            if rast == None {
-                panic!("Applier must implement get_ast function");
-            }
+
             let search_pattern = Rc::new(NodeExpr::from_pattern_ast::<N>(
                 egraph,
-                sast.unwrap(),
+                sast,
                 &connection.subst,
                 None,
             ));
@@ -374,9 +420,9 @@ impl<L: Language> History<L> {
             }
 
             let latest = proof.pop().unwrap();
-            let next = latest.rewrite::<N>(egraph, sast.unwrap(), rast.unwrap(), &connection.subst);
+            let next = latest.rewrite::<N>(egraph, sast, rast, &connection.subst);
             let mut newlink = (*latest).clone();
-            newlink.rule_index = connection.rule_index;
+            newlink.rule_ref = connection.rule_ref.clone();
             newlink.is_direction_forward = connection.is_direction_forward;
             newlink.is_being_rewritten = true;
             proof.push(Rc::new(newlink));
@@ -409,7 +455,7 @@ impl<L: Language> History<L> {
                 for j in 0..proof_equal.len() {
                     let mut newlink = (*latest).clone();
                     newlink.children[i] = proof_equal[j].clone();
-                    newlink.rule_index = proof_equal[j].rule_index;
+                    newlink.rule_ref = proof_equal[j].rule_ref.clone();
                     newlink.is_direction_forward = proof_equal[j].is_direction_forward;
                     proof.push(Rc::new(newlink));
                     latest = proof[proof.len() - 1].clone()
