@@ -156,6 +156,15 @@ fn edge(i: usize, len: usize) -> (String, String) {
     }
 }
 
+fn enode_to_string<L: Language>(node_ref: &L) -> String {
+    let mut node: L = node_ref.clone();
+    let mut strings = vec![];
+    strings.push(format!("({}", node.display_op()));
+    node.for_each_mut(|child| strings.push(format!(" {}", child)));
+    strings.push(")".to_string());
+    strings.concat()
+}
+
 impl<'a, L, N> Display for Dot<'a, L, N>
 where
     L: Language,
@@ -196,7 +205,7 @@ where
                         writeln!(
                             f,
                             // {}.0 to pick an arbitrary node in the cluster
-                            "  {}.{}{} -> {}.{}:n [lhead = cluster_{}, {}]",
+                            "  {}.{}{} -> {}.{}:e [lhead = cluster_{}, {}]",
                             class.id, i_in_class, anchor, class.id, i_in_class, class.id, label
                         )?;
                     } else {
@@ -210,6 +219,29 @@ where
                     arg_i += 1;
                     Ok(())
                 })?;
+            }
+        }
+
+        let hist = &self.egraph.history;
+        
+        for (node, connections) in &hist.graph {
+            for connection in connections {
+                if connection.is_direction_forward {
+                    let id1 = self.egraph.lookup(node.clone()).unwrap();
+                    let id2 = self.egraph.lookup(connection.node.clone()).unwrap();
+                    /*println!("node 1: {}", enode_to_string(node));
+                    for n in self.egraph[id1].iter() {
+                        println!("   in class: {}", enode_to_string(n));
+                    }*/
+                    let i_in_class_o = self.egraph[id1].iter().position(|n| n == node);
+                    let i_in_class_2_o = self.egraph[id2].iter().position(|n| n == &connection.node);
+                    if let (Some(i_in_class), Some(i_in_class_2)) = (i_in_class_o, i_in_class_2_o) {
+                        writeln!(
+                            f,
+                            " {}.{}:n -> {}.{}:n [color = blue]",
+                            id1, i_in_class, id2, i_in_class_2);
+                    }
+                }
             }
         }
 

@@ -1,4 +1,4 @@
-use crate::util::HashMap;
+use crate::util::{HashMap, HashSet};
 use crate::{
     Analysis, Applications, EGraph, ENodeOrVar, Id, Language, PatternAst, RecExpr, Rewrite, Subst,
     Var,
@@ -16,10 +16,10 @@ enum RuleReference<L> {
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
-struct RewriteConnection<L: Language> {
-    node: L,
+pub struct RewriteConnection<L: Language> {
+    pub node: L,
     subst: Subst,
-    is_direction_forward: bool,
+    pub is_direction_forward: bool,
     rule_ref: RuleReference<L>,
 }
 
@@ -214,7 +214,7 @@ impl<L: Language> NodeExpr<L> {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct History<L: Language> {
     // actually a set of trees, since each newenode is unioned only once with another enode
-    graph: HashMap<L, Vec<RewriteConnection<L>>>,
+    pub graph: HashMap<L, Vec<RewriteConnection<L>>>,
 }
 
 impl<L: Language> Default for History<L> {
@@ -329,6 +329,7 @@ impl<L: Language> History<L> {
             println!("they are equal");
             return vec![];
         }
+        let mut seen: HashSet<&L> = Default::default();
         let mut prev_node: HashMap<&L, &L> = Default::default();
         let mut prev: HashMap<&L, &RewriteConnection<L>> = Default::default();
         let mut todo: VecDeque<&L> = VecDeque::new();
@@ -339,6 +340,11 @@ impl<L: Language> History<L> {
                 panic!("could not find proof path");
             }
             let current = todo.pop_front().unwrap();
+            match seen.get(current) {
+                Some(_) => continue,
+                None => seen.insert(current),
+            };
+            
 
             if let Some(children) = self.graph.get(current) {
                 let mut found = false;
@@ -388,8 +394,13 @@ impl<L: Language> History<L> {
         let mut proof: Vec<Rc<NodeExpr<L>>> = vec![];
         proof.push(left.clone());
 
-        let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
-        println!("{}", path.len());
+        assert_eq!(egraph.lookup(left.node.as_ref().unwrap().clone()), egraph.lookup(right.node.as_ref().unwrap().clone()));
+        let mut cana = left.node.as_ref().unwrap().clone();
+        let mut canb = right.node.as_ref().unwrap().clone();
+        cana.update_children(|child| egraph.find(child));
+        canb.update_children(|child| egraph.find(child));
+        let path = self.find_proof_path(&cana, &canb);
+        
 
         for connection in path.iter() {
             let mut sast = match &connection.rule_ref {
