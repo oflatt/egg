@@ -205,7 +205,7 @@ where
                         writeln!(
                             f,
                             // {}.0 to pick an arbitrary node in the cluster
-                            "  {}.{}{} -> {}.{}:e [lhead = cluster_{}, {}]",
+                            "  {}.{}{} -> {}.{}:n [lhead = cluster_{}, {}]",
                             class.id, i_in_class, anchor, class.id, i_in_class, class.id, label
                         )?;
                     } else {
@@ -223,7 +223,7 @@ where
         }
 
         let hist = &self.egraph.history;
-        
+
         for (node, connections) in &hist.graph {
             for connection in connections {
                 if connection.is_direction_forward {
@@ -234,12 +234,14 @@ where
                         println!("   in class: {}", enode_to_string(n));
                     }*/
                     let i_in_class_o = self.egraph[id1].iter().position(|n| n == node);
-                    let i_in_class_2_o = self.egraph[id2].iter().position(|n| n == &connection.node);
+                    let i_in_class_2_o =
+                        self.egraph[id2].iter().position(|n| n == &connection.node);
                     if let (Some(i_in_class), Some(i_in_class_2)) = (i_in_class_o, i_in_class_2_o) {
                         writeln!(
                             f,
-                            " {}.{}:n -> {}.{}:n [color = blue]",
-                            id1, i_in_class, id2, i_in_class_2);
+                            " {}.{}:e -> {}.{}:e [color = blue]",
+                            id1, i_in_class, id2, i_in_class_2
+                        );
                     }
                 }
             }

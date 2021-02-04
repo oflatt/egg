@@ -18,7 +18,6 @@ enum RuleReference<L> {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct RewriteConnection<L: Language> {
     pub node: L,
-    // may have old ids, are not rebuild
     subst: Subst,
     pub is_direction_forward: bool,
     rule_ref: RuleReference<L>,
@@ -82,7 +81,7 @@ impl<L: Language> NodeExpr<L> {
                     }
                 };
 
-                if (self.is_being_rewritten) {
+                if self.is_being_rewritten {
                     Sexp::List(vec![Sexp::String("=>".to_string()), res])
                 } else {
                     res
@@ -99,15 +98,11 @@ impl<L: Language> NodeExpr<L> {
     pub fn connection_string<N: Analysis<L>>(&self, rules: &[&Rewrite<L, N>]) -> String {
         let reason = {
             match &self.rule_ref {
-                RuleReference::Pattern((_l, _r, reason)) => {
-                    reason
-                }
-                RuleReference::Index(rule_index) => {
-                    &rules[*rule_index].name
-                }
+                RuleReference::Pattern((_l, _r, reason)) => reason,
+                RuleReference::Index(rule_index) => &rules[*rule_index].name,
             }
         };
-        
+
         if (self.is_direction_forward) {
             reason.to_owned() + &" =>"
         } else {
@@ -166,7 +161,7 @@ impl<L: Language> NodeExpr<L> {
                 }
             }
         }
-        
+
         // last nodeexpr, the top node
         (*nodeexprs.pop().unwrap()).clone()
     }
@@ -215,7 +210,7 @@ impl<L: Language> NodeExpr<L> {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct History<L: Language> {
-    // actually a set of trees, since each newenode is unioned only once with another enode
+    // while it may have cycles, it guarantees a non-trivial path between any two enodes in an eclass
     pub graph: HashMap<L, Vec<RewriteConnection<L>>>,
 }
 
@@ -304,7 +299,7 @@ impl<L: Language> History<L> {
             connections.sort_unstable();
             connections.dedup();
         }
-        
+
         self.graph = newgraph;
     }
 
@@ -324,20 +319,88 @@ impl<L: Language> History<L> {
         }
     }
 
+    fn does_searcher_match_var<N: Analysis<L>>(
+        rules: &[&Rewrite<L, N>],
+        rule_ref: &RuleReference<L>,
+    ) -> bool {
+        match rule_ref {
+            RuleReference::Index(i) => {
+                let ast = rules[*i].searcher.get_ast()
+                                            .unwrap_or_else(|| panic!("Searcher must implement get_ast")).as_ref();
+                if ast.len() == 1 {
+                    if let ENodeOrVar::Var(_) = ast[0] {
+                        return true;
+                    }
+                }
+            }
+            RuleReference::Pattern((searcher, _a, _r)) => {
+                let ast = searcher.as_ref();
+                if ast.len() == 1 {
+                    if let ENodeOrVar::Var(_) = ast[0] {
+                        return true;
+                    }
+                }
+            }
+        };
+        return false;
+    }
+
+    fn does_applier_match_var<N: Analysis<L>>(rules: &[&Rewrite<L, N>], rule_ref: &RuleReference<L>) -> bool {
+        match rule_ref {
+            RuleReference::Index(i) => {
+                let ast = rules[*i].applier.get_ast()
+                                            .unwrap_or_else(|| panic!("Searcher must implement get_ast")).as_ref();
+                if ast.len() == 1 {
+                    if let ENodeOrVar::Var(_) = ast[0] {
+                        return true;
+                    }
+                }
+            }
+            RuleReference::Pattern((_s, applier, _r)) => {
+                let ast = applier.as_ref();
+                if ast.len() == 1 {
+                    if let ENodeOrVar::Var(_) = ast[0] {
+                        return true;
+                    }
+                }
+            }
+        };
+        return false;
+    }
+
+    fn is_trivial_on<N: Analysis<L>>(rules: &[&Rewrite<L, N>], rule_ref: &RuleReference<L>, searcher: bool) -> bool {
+        if searcher {
+          History::<L>::does_searcher_match_var::<N>(rules, rule_ref)    
+        } else {
+          History::<L>::does_applier_match_var::<N>(rules, rule_ref)    
+        }
+    }
+
     // find a sequence of rewrites between two enodes
     // this performs a breadth first search to find the one unique path in the graph
-    fn find_proof_path(&self, left: &L, right: &L) -> Vec<&RewriteConnection<L>> {
+    fn find_proof_path<N: Analysis<L>>(
+        &self,
+        rules: &[&Rewrite<L, N>],
+        left: &L,
+        right: &L,
+    ) -> Vec<&RewriteConnection<L>> {
         if (left == right) {
             return vec![];
         }
         let mut seen: HashSet<&L> = Default::default();
+        // keep track of if the current path is non-trivial
+        // a trivial path is one that starts by matching a variable and ends by substituting a variable
+        // example: a trivial path is a -> (+ a 0) -> a
+        let mut is_trivial: HashMap<&L, bool> = Default::default();
         let mut prev_node: HashMap<&L, &L> = Default::default();
         let mut prev: HashMap<&L, &RewriteConnection<L>> = Default::default();
         let mut todo: VecDeque<&L> = VecDeque::new();
         todo.push_back(left);
+        is_trivial.insert(left, false);
 
         while true {
             if todo.len() == 0 {
+                // TODO make this a result instead of panic
                 panic!("could not find proof path");
             }
             let current = todo.pop_front().unwrap();
@@ -345,16 +408,43 @@ impl<L: Language> History<L> {
                 Some(_) => continue,
                 None => seen.insert(current),
             };
-            
 
             if let Some(children) = self.graph.get(current) {
                 let mut found = false;
                 for child in children {
+                    let mut current_trivial = *is_trivial.get(current).unwrap();
+                    if (current == left) {
+                        if History::<L>::is_trivial_on::<N>(rules, &child.rule_ref, child.is_direction_forward) {
+                            //println!("starting path trivial");
+                            current_trivial = true;
+                        }
+                    }
+
+                    // we want to re-explore if we have now found a non-trivial way to get to a node
+                    if let Some(true) = is_trivial.get(&child.node) {
+                        if !current_trivial {
+                            seen.remove(&child.node);
+                        }
+                    } else if (current_trivial && (is_trivial.get(&child.node) == Some(&false))) {
+                        // we don't add the next node if we are trivial and 
+                        // there is a non-trivial path
+                        continue;
+                    }
+
+                    if seen.get(&child.node) == None {
+                        is_trivial.insert(&child.node, current_trivial);
+                    }
+
                     prev.insert(&child.node, child);
                     prev_node.insert(&child.node, current);
-                    if (&child.node == right) {
-                        found = true;
-                        break;
+                    if &child.node == right {
+                        if !(current_trivial
+                            && History::<L>::is_trivial_on::<N>(rules, &child.rule_ref, !child.is_direction_forward))
+                        {
+                            // we found a non-trivial path
+                            found = true;
+                            break;
+                        }
                     }
                     todo.push_back(&child.node);
                 }
@@ -380,7 +470,6 @@ impl<L: Language> History<L> {
         left: Rc<NodeExpr<L>>,
         right: Rc<NodeExpr<L>>,
     ) -> Vec<Rc<NodeExpr<L>>> {
-
         if (left.node == None && right.node == None) {
             panic!("Can't prove two holes equal");
         }
@@ -395,9 +484,15 @@ impl<L: Language> History<L> {
         let mut proof: Vec<Rc<NodeExpr<L>>> = vec![];
         proof.push(left.clone());
 
-        assert_eq!(egraph.lookup(left.node.as_ref().unwrap().clone()), egraph.lookup(right.node.as_ref().unwrap().clone()));
-        let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
-        
+        assert_eq!(
+            egraph.lookup(left.node.as_ref().unwrap().clone()),
+            egraph.lookup(right.node.as_ref().unwrap().clone())
+        );
+        let path = self.find_proof_path::<N>(
+            rules,
+            left.node.as_ref().unwrap(),
+            right.node.as_ref().unwrap(),
+        );
 
         for connection in path.iter() {
             let mut sast = match &connection.rule_ref {
@@ -420,6 +515,8 @@ impl<L: Language> History<L> {
                 std::mem::swap(&mut sast, &mut rast);
             }
 
+            //println!("rule: {} => {}", sast.to_string(), rast.to_string());
+
             let search_pattern = Rc::new(NodeExpr::from_pattern_ast::<N>(
                 egraph,
                 sast,
@@ -428,7 +525,11 @@ impl<L: Language> History<L> {
             ));
 
             // first prove it matches the search_pattern
-            println!("proving {} and {}", proof[proof.len()-1].to_string(), right.to_string());
+            println!(
+                "proving {} and {}",
+                proof[proof.len() - 1].to_string(),
+                right.to_string()
+            );
             println!("proving matches pattern {}", search_pattern.to_string());
             let subproof = self.recursive_proof(
                 egraph,
@@ -449,10 +550,15 @@ impl<L: Language> History<L> {
                 egraph,
                 sast,
                 &connection.subst,
-                Some(&leftsubst)
+                Some(&leftsubst),
             ));
-            println!("proving matches pattern substituted {}", search_pattern_substituted.to_string());
-            let subproof2 = self.recursive_proof(egraph, rules, matched_search.clone(), search_pattern_substituted);
+    
+            let subproof2 = self.recursive_proof(
+                egraph,
+                rules,
+                matched_search.clone(),
+                search_pattern_substituted,
+            );
             proof.extend(subproof2);
 
             let latest = proof.pop().unwrap();
@@ -466,15 +572,17 @@ impl<L: Language> History<L> {
         }
 
         // we may have removed one layer in the expression, so prove equal again
-        if proof[proof.len()-1].node != right.node {
+        if proof[proof.len() - 1].node != right.node {
             let latest = proof.pop().unwrap();
-            println!("proving children equal because we unwrapped {}", latest.to_string());
+            println!(
+                "proving children equal because we unwrapped {}",
+                latest.to_string()
+            );
             let rest_of_proof = self.recursive_proof(egraph, rules, latest, right);
             proof.extend(rest_of_proof);
             proof
         } else {
             // now that we have arrived at the correct enode, there may yet be work to do on the children
-            println!("proving children equal");
             self.prove_children_equal(egraph, rules, right, &mut proof);
             proof
         }
@@ -489,8 +597,11 @@ impl<L: Language> History<L> {
     ) {
         let left = proof[proof.len() - 1].clone();
         if left.children.len() != right.children.len() {
-            panic!("Found equal enodes but different number of children: {} and {}",
-            left.to_string(), right.to_string());
+            panic!(
+                "Found equal enodes but different number of children: {} and {}",
+                left.to_string(),
+                right.to_string()
+            );
         }
         for i in 0..left.children.len() {
             let lchild = left.children[i].clone();

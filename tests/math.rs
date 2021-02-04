@@ -398,8 +398,8 @@ egg::test_fn! {
         check_proof(&mut r, rules(), "a",
                     "(+ (+ (+ a 0) 0) 0)",
                     vec!["(=> a)", "add-zero =>", "(+ (=> a) 0)", "add-zero =>",
-                         "(+ (+ (=> a) 0) 0)", "add-zero =>", "(+ (+ (+ a 0) 0) 0)"]);  
-    }  
+                         "(+ (+ (=> a) 0) 0)", "add-zero =>", "(+ (+ (+ a 0) 0) 0)"]);
+    }
 }
 
 egg::test_fn! {
