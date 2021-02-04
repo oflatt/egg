@@ -385,7 +385,7 @@ impl<L: Language> History<L> {
                 RuleReference::Index(i) => rules[*i]
                     .searcher
                     .get_ast()
-                    .unwrap_or(panic!("Applier must implement get_ast function")),
+                    .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
                 RuleReference::Pattern((left, _right, _reaon)) => &left,
             };
 
@@ -393,7 +393,7 @@ impl<L: Language> History<L> {
                 RuleReference::Index(i) => rules[*i]
                     .applier
                     .get_ast()
-                    .unwrap_or(panic!("Applier must implement get_ast function")),
+                    .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
                 RuleReference::Pattern((_left, right, _reaon)) => right,
             };
 

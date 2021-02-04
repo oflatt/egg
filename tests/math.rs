@@ -69,16 +69,18 @@ impl Analysis<Math> for ConstantFold {
                 _ => return None,
             },
             {
-                let pattern: PatternAst<Math> = Default::default();
+                let mut pattern: PatternAst<Math> = Default::default();
                 enode.for_each(|child| {
-                    pattern.add(ENodeOrVar::ENode(Math::Constant(x(child).unwrap())));
+                    pattern.add(ENodeOrVar::ENode(Math::Constant(x(&child).unwrap())));
                 });
                 let mut counter = 0;
                 let mut head = enode.clone();
-                head.for_each_mut(|&mut child| {
-                    *child = counter;
+                head.update_children(|_child| {
+                    let res = Id::from(counter);
+                    counter += 1;
+                    res
                 });
-                pattern.add(head);
+                pattern.add(ENodeOrVar::ENode(head));
                 pattern
             },
         ))
@@ -90,8 +92,8 @@ impl Analysis<Math> for ConstantFold {
             let added = egraph.add(Math::Constant(c));
             let (id, did_something) = egraph.union(id, added);
             if did_something {
-                let const_pattern: PatternAst<Math> = Default::default();
-                const_pattern.add(ENodeOrVar::ENode(Math::Constant(C)));
+                let mut const_pattern: PatternAst<Math> = Default::default();
+                const_pattern.add(ENodeOrVar::ENode(Math::Constant(c)));
                 egraph.add_union_proof(
                     node,
                     const_pattern,
