@@ -18,6 +18,7 @@ enum RuleReference<L> {
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct RewriteConnection<L: Language> {
     pub node: L,
+    // may have old ids, are not rebuild
     subst: Subst,
     pub is_direction_forward: bool,
     rule_ref: RuleReference<L>,
@@ -151,7 +152,8 @@ impl<L: Language> NodeExpr<L> {
                     } else {
                         nodeexprs.push(Rc::new(NodeExpr::new(None, vec![])));
                     }
-                    new_ids.push(subst[*v]);
+                    // substs may have old ids
+                    new_ids.push(egraph.find(subst[*v]));
                 }
                 ENodeOrVar::ENode(node) => {
                     let mut children: Vec<Rc<NodeExpr<L>>> = vec![];
@@ -302,6 +304,7 @@ impl<L: Language> History<L> {
             connections.sort_unstable();
             connections.dedup();
         }
+        
         self.graph = newgraph;
     }
 
@@ -324,9 +327,7 @@ impl<L: Language> History<L> {
     // find a sequence of rewrites between two enodes
     // this performs a breadth first search to find the one unique path in the graph
     fn find_proof_path(&self, left: &L, right: &L) -> Vec<&RewriteConnection<L>> {
-        println!("Find proof path of {} and {}", enode_to_string(left), enode_to_string(right));
         if (left == right) {
-            println!("they are equal");
             return vec![];
         }
         let mut seen: HashSet<&L> = Default::default();
@@ -395,11 +396,7 @@ impl<L: Language> History<L> {
         proof.push(left.clone());
 
         assert_eq!(egraph.lookup(left.node.as_ref().unwrap().clone()), egraph.lookup(right.node.as_ref().unwrap().clone()));
-        let mut cana = left.node.as_ref().unwrap().clone();
-        let mut canb = right.node.as_ref().unwrap().clone();
-        cana.update_children(|child| egraph.find(child));
-        canb.update_children(|child| egraph.find(child));
-        let path = self.find_proof_path(&cana, &canb);
+        let path = self.find_proof_path(left.node.as_ref().unwrap(), right.node.as_ref().unwrap());
         
 
         for connection in path.iter() {
@@ -432,7 +429,7 @@ impl<L: Language> History<L> {
 
             // first prove it matches the search_pattern
             println!("proving {} and {}", proof[proof.len()-1].to_string(), right.to_string());
-            println!("proving matches searcher {}", search_pattern.to_string());
+            println!("proving matches pattern {}", search_pattern.to_string());
             let subproof = self.recursive_proof(
                 egraph,
                 rules,
@@ -454,7 +451,7 @@ impl<L: Language> History<L> {
                 &connection.subst,
                 Some(&leftsubst)
             ));
-            println!("Now proved with children {}", search_pattern_substituted.to_string());
+            println!("proving matches pattern substituted {}", search_pattern_substituted.to_string());
             let subproof2 = self.recursive_proof(egraph, rules, matched_search.clone(), search_pattern_substituted);
             proof.extend(subproof2);
 
@@ -468,10 +465,19 @@ impl<L: Language> History<L> {
             proof.push(next);
         }
 
-        // now that we have arrived at the correct enode, there may yet be work to do on the children
-        self.prove_children_equal(egraph, rules, right, &mut proof);
-
-        proof
+        // we may have removed one layer in the expression, so prove equal again
+        if proof[proof.len()-1].node != right.node {
+            let latest = proof.pop().unwrap();
+            println!("proving children equal because we unwrapped {}", latest.to_string());
+            let rest_of_proof = self.recursive_proof(egraph, rules, latest, right);
+            proof.extend(rest_of_proof);
+            proof
+        } else {
+            // now that we have arrived at the correct enode, there may yet be work to do on the children
+            println!("proving children equal");
+            self.prove_children_equal(egraph, rules, right, &mut proof);
+            proof
+        }
     }
 
     fn prove_children_equal<N: Analysis<L>>(
@@ -483,7 +489,8 @@ impl<L: Language> History<L> {
     ) {
         let left = proof[proof.len() - 1].clone();
         if left.children.len() != right.children.len() {
-            panic!("Found equal enodes but different number of children");
+            panic!("Found equal enodes but different number of children: {} and {}",
+            left.to_string(), right.to_string());
         }
         for i in 0..left.children.len() {
             let lchild = left.children[i].clone();
