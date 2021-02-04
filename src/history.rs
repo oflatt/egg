@@ -96,17 +96,21 @@ impl<L: Language> NodeExpr<L> {
     }
 
     pub fn connection_string<N: Analysis<L>>(&self, rules: &[&Rewrite<L, N>]) -> String {
-        match &self.rule_ref {
-            RuleReference::Pattern((_l, _r, reason)) => {
-                return reason.clone();    
-            }
-            RuleReference::Index(rule_index) => {
-                if (self.is_direction_forward) {
-                    rules[*rule_index].name.to_string() + &" =>".to_string()
-                } else {
-                    "<= ".to_string() + &rules[*rule_index].name.to_string()
+        let reason = {
+            match &self.rule_ref {
+                RuleReference::Pattern((_l, _r, reason)) => {
+                    reason
+                }
+                RuleReference::Index(rule_index) => {
+                    &rules[*rule_index].name
                 }
             }
+        };
+        
+        if (self.is_direction_forward) {
+            reason.to_owned() + &" =>"
+        } else {
+            "<= ".to_owned() + reason
         }
     }
 
@@ -364,6 +368,8 @@ impl<L: Language> History<L> {
         left: Rc<NodeExpr<L>>,
         right: Rc<NodeExpr<L>>,
     ) -> Vec<Rc<NodeExpr<L>>> {
+        println!("proving {} and {}", left.to_string(), right.to_string());
+
         if (left.node == None && right.node == None) {
             panic!("Can't prove two holes equal");
         }
