@@ -502,19 +502,32 @@ impl<L: Language> History<L> {
         &self,
         egraph: &mut EGraph<L, N>,
         rules: &[&Rewrite<L, N>],
-        left: Rc<NodeExpr<L>>,
-        right: Rc<NodeExpr<L>>,
+        left_input: Rc<NodeExpr<L>>,
+        right_input: Rc<NodeExpr<L>>,
         var_memo: &mut HashMap<usize, Rc<NodeExpr<L>>>,
         var_counter: &mut usize,
     ) -> Vec<Rc<NodeExpr<L>>> {
+        let mut left = left_input;
+        let mut right = right_input;
         if (left.node == None && right.node == None) {
             panic!("Can't prove two holes equal");
         }
 
         // empty proof when one of them is a hole
-        if (left.node == None) {
-            return vec![right.clone()];
-        } else if (right.node == None) {
+        if left.node == None {
+            // left holes could be a bound variable
+            if left.var_reference > 0 {
+                if var_memo.get(&left.var_reference).unwrap().node == None {
+                    var_memo.insert(left.var_reference, right.clone());
+                    return vec![right.clone()];
+                } else {
+                    // found a bound variable in the expression
+                    left = var_memo.get(&left.var_reference).unwrap().clone();
+                }
+            } else {
+                return vec![right.clone()];
+            }
+        } else if right.node == None {
             return vec![left.clone()];
         }
 
