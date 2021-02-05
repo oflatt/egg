@@ -29,7 +29,9 @@ pub struct NodeExpr<L: Language> {
     children: Vec<Rc<NodeExpr<L>>>,
     rule_ref: RuleReference<L>,
     is_direction_forward: bool,
-    is_being_rewritten: bool,
+    is_rewritten_forward: bool,
+    is_rewritten_backwards: bool,
+    var_reference: usize // used to keep track of variable bindings, 0 means no reference
 }
 
 fn enode_to_string<L: Language>(node_ref: &L) -> String {
@@ -48,7 +50,9 @@ impl<L: Language> NodeExpr<L> {
             children: children,
             rule_ref: RuleReference::Index(0),
             is_direction_forward: true,
-            is_being_rewritten: false,
+            is_rewritten_forward: false,
+            is_rewritten_backwards: false,
+            var_reference: 0
         }
     }
 
@@ -69,7 +73,7 @@ impl<L: Language> NodeExpr<L> {
         match &self.node {
             Some(node) => {
                 let op = Sexp::String(node.display_op().to_string());
-                let res = {
+                let mut res = {
                     if self.children.len() > 0 {
                         let mut vec = vec![op];
                         for child in &self.children {
@@ -81,11 +85,13 @@ impl<L: Language> NodeExpr<L> {
                     }
                 };
 
-                if self.is_being_rewritten {
-                    Sexp::List(vec![Sexp::String("=>".to_string()), res])
-                } else {
-                    res
+                if self.is_rewritten_forward {
+                    res = Sexp::List(vec![Sexp::String("=>".to_string()), res]);
                 }
+                if self.is_rewritten_backwards {
+                    res = Sexp::List(vec![Sexp::String("<=".to_string()), res]);
+                }
+                res
             }
             None => Sexp::String("hole".to_string()),
         }
@@ -135,7 +141,13 @@ impl<L: Language> NodeExpr<L> {
         ast: &PatternAst<L>,
         subst: &Subst,
         substmap: Option<&HashMap<Var, Rc<NodeExpr<L>>>>, // optionally used to replace variables with nodeexpr
-    ) -> Self {
+        var_memo: Option<&mut HashMap<usize, Rc<NodeExpr<L>>>>, // add to this for variable bindings
+        start_var_counter: Option<usize>,// we return the new var counter
+    ) -> (Self, usize) {
+        let mut dummy_hashmap = Default::default();
+        let mut var_memo_unwrapped = var_memo.unwrap_or_else(|| &mut dummy_hashmap);
+        let mut var_counter = start_var_counter.unwrap_or(0);
+        let mut symbol_map: HashMap<&Var, usize> = Default::default();
         let nodes = ast.as_ref();
         let mut nodeexprs: Vec<Rc<NodeExpr<L>>> = Vec::with_capacity(nodes.len());
         let mut new_ids = Vec::with_capacity(nodes.len());
@@ -143,7 +155,22 @@ impl<L: Language> NodeExpr<L> {
             match nodeorvar {
                 ENodeOrVar::Var(v) => {
                     if let Some(map) = substmap {
-                        nodeexprs.push(map.get(v).unwrap().clone());
+                        if let Some(substitution) = map.get(v) {
+                            nodeexprs.push(substitution.clone());
+                        } else {
+                            let mut var_num = var_counter;
+                            if let Some(n) = symbol_map.get(v) {
+                                var_num = *n;
+                            } else {
+                                symbol_map.insert(v, var_num);
+                                var_memo_unwrapped.insert(var_num, Rc::new(NodeExpr::new(None, vec![])));
+                                var_counter += 1;
+                            }
+
+                            let mut newexpr = NodeExpr::new(None, vec![]);
+                            newexpr.var_reference = var_num;
+                            nodeexprs.push(Rc::new(newexpr));
+                        }
                     } else {
                         nodeexprs.push(Rc::new(NodeExpr::new(None, vec![])));
                     }
@@ -163,7 +190,7 @@ impl<L: Language> NodeExpr<L> {
         }
 
         // last nodeexpr, the top node
-        (*nodeexprs.pop().unwrap()).clone()
+        ((*nodeexprs.pop().unwrap()).clone(), var_counter)
     }
 
     fn make_subst(
@@ -196,15 +223,21 @@ impl<L: Language> NodeExpr<L> {
         left: &PatternAst<L>,
         right: &PatternAst<L>,
         subst: &Subst,
-    ) -> Rc<NodeExpr<L>> {
+        var_memo: &mut HashMap<usize, Rc<NodeExpr<L>>>,
+        var_counter: &mut usize,
+    ) -> NodeExpr<L> {
         let mut graphsubst = Default::default();
         self.make_subst(left, Id::from(left.as_ref().len() - 1), &mut graphsubst);
-        Rc::new(NodeExpr::from_pattern_ast::<N>(
+        let (pattern, new_var_counter) = NodeExpr::from_pattern_ast::<N>(
             egraph,
             right,
             subst,
             Some(&graphsubst),
-        ))
+            Some(var_memo),
+            Some(*var_counter)
+        );
+        *var_counter = new_var_counter;
+        pattern
     }
 }
 
@@ -261,8 +294,8 @@ impl<L: Language> History<L> {
         subst: Subst,
         reason: String,
     ) {
-        let from_node = NodeExpr::from_pattern_ast(egraph, &from, &subst, None);
-        let to_node = NodeExpr::from_pattern_ast(egraph, &to, &subst, None);
+        let (from_node, _) = NodeExpr::from_pattern_ast(egraph, &from, &subst, None, None, None);
+        let (to_node, _) = NodeExpr::from_pattern_ast(egraph, &to, &subst, None, None, None);
         self.add_connection(
             from_node.node.unwrap(),
             to_node.node.unwrap(),
@@ -315,7 +348,9 @@ impl<L: Language> History<L> {
         } else {
             let lg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, left));
             let rg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, right));
-            return Some(self.recursive_proof(egraph, rules, lg, rg));
+            let mut var_memo = Default::default();
+            let mut var_counter = 1;
+            return Some(self.recursive_proof(egraph, rules, lg, rg, &mut var_memo, &mut var_counter));
         }
     }
 
@@ -469,6 +504,8 @@ impl<L: Language> History<L> {
         rules: &[&Rewrite<L, N>],
         left: Rc<NodeExpr<L>>,
         right: Rc<NodeExpr<L>>,
+        var_memo: &mut HashMap<usize, Rc<NodeExpr<L>>>,
+        var_counter: &mut usize,
     ) -> Vec<Rc<NodeExpr<L>>> {
         if (left.node == None && right.node == None) {
             panic!("Can't prove two holes equal");
@@ -522,7 +559,9 @@ impl<L: Language> History<L> {
                 sast,
                 &connection.subst,
                 None,
-            ));
+                None,
+                None
+            ).0);
 
             // first prove it matches the search_pattern
             println!(
@@ -536,6 +575,8 @@ impl<L: Language> History<L> {
                 rules,
                 proof[proof.len() - 1].clone(),
                 search_pattern,
+                var_memo,
+                var_counter
             );
             if subproof.len() > 1 {
                 proof.pop();
@@ -543,7 +584,7 @@ impl<L: Language> History<L> {
             }
 
             // now prove that matching variables are the same, as in (- a a)
-            let matched_search = proof.pop().unwrap();
+            /*let matched_search = proof.pop().unwrap();
             let mut leftsubst = Default::default();
             matched_search.make_subst(&sast, Id::from(sast.as_ref().len() - 1), &mut leftsubst);
             let search_pattern_substituted = Rc::new(NodeExpr::from_pattern_ast::<N>(
@@ -551,6 +592,7 @@ impl<L: Language> History<L> {
                 sast,
                 &connection.subst,
                 Some(&leftsubst),
+
             ));
     
             let subproof2 = self.recursive_proof(
@@ -558,17 +600,24 @@ impl<L: Language> History<L> {
                 rules,
                 matched_search.clone(),
                 search_pattern_substituted,
+                var_memo,
+                var_counter
             );
-            proof.extend(subproof2);
+            proof.extend(subproof2);*/
 
             let latest = proof.pop().unwrap();
-            let next = latest.rewrite::<N>(egraph, sast, rast, &connection.subst);
+            let mut next = latest.rewrite::<N>(egraph, sast, rast, &connection.subst, var_memo, var_counter);
             let mut newlink = (*latest).clone();
             newlink.rule_ref = connection.rule_ref.clone();
             newlink.is_direction_forward = connection.is_direction_forward;
-            newlink.is_being_rewritten = true;
+            if connection.is_direction_forward {
+                newlink.is_rewritten_forward = true;
+            }
+            if !connection.is_direction_forward {
+                next.is_rewritten_backwards = true;
+            }
             proof.push(Rc::new(newlink));
-            proof.push(next);
+            proof.push(Rc::new(next));
         }
 
         // we may have removed one layer in the expression, so prove equal again
@@ -578,12 +627,12 @@ impl<L: Language> History<L> {
                 "proving children equal because we unwrapped {}",
                 latest.to_string()
             );
-            let rest_of_proof = self.recursive_proof(egraph, rules, latest, right);
+            let rest_of_proof = self.recursive_proof(egraph, rules, latest, right, var_memo, var_counter);
             proof.extend(rest_of_proof);
             proof
         } else {
             // now that we have arrived at the correct enode, there may yet be work to do on the children
-            self.prove_children_equal(egraph, rules, right, &mut proof);
+            self.prove_children_equal(egraph, rules, right, &mut proof, var_memo, var_counter);
             proof
         }
     }
@@ -594,6 +643,8 @@ impl<L: Language> History<L> {
         rules: &[&Rewrite<L, N>],
         right: Rc<NodeExpr<L>>,
         proof: &mut Vec<Rc<NodeExpr<L>>>,
+        var_memo: &mut HashMap<usize, Rc<NodeExpr<L>>>,
+        var_counter: &mut usize
     ) {
         let left = proof[proof.len() - 1].clone();
         if left.children.len() != right.children.len() {
@@ -606,17 +657,15 @@ impl<L: Language> History<L> {
         for i in 0..left.children.len() {
             let lchild = left.children[i].clone();
             let rchild = right.children[i].clone();
-            let proof_equal = self.recursive_proof(egraph, rules, lchild, rchild);
-            if proof_equal.len() > 1 {
-                let mut latest = proof.pop().unwrap();
-                for j in 0..proof_equal.len() {
-                    let mut newlink = (*latest).clone();
-                    newlink.children[i] = proof_equal[j].clone();
-                    newlink.rule_ref = proof_equal[j].rule_ref.clone();
-                    newlink.is_direction_forward = proof_equal[j].is_direction_forward;
-                    proof.push(Rc::new(newlink));
-                    latest = proof[proof.len() - 1].clone()
-                }
+            let proof_equal = self.recursive_proof(egraph, rules, lchild, rchild, var_memo, var_counter);
+            let mut latest = proof.pop().unwrap();
+            for j in 0..proof_equal.len() {
+                let mut newlink = (*latest).clone();
+                newlink.children[i] = proof_equal[j].clone();
+                newlink.rule_ref = proof_equal[j].rule_ref.clone();
+                newlink.is_direction_forward = proof_equal[j].is_direction_forward;
+                proof.push(Rc::new(newlink));
+                latest = proof[proof.len() - 1].clone()
             }
         }
     }

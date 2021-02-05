@@ -411,8 +411,8 @@ egg::test_fn! {
     @check |mut r: Runner<Math, ConstantFold>| {
         r.egraph.dot().to_png("target/newegraph.png").unwrap();
         println!("running proof");
-        check_proof(&mut r, rules(), "(+ 1 (- a (* (- 2 1) a)))",
-                    "1",
+        check_proof(&mut r, rules(), "1",
+                        "(+ 1 (- a (* (- 2 1) a)))",
                     vec!["(+ 1 (- a (* (=> (- 2 1)) a)))",
                          "metadata-eval"]);
 
