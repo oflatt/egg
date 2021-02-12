@@ -457,7 +457,7 @@ impl<L: Language> History<L> {
 
                         if let Some(answer) = yield_fn(found_path) {
                             return Some(answer);
-                        } else {
+                        } else { // otherwise we backtrack and find more paths
                             println!("###########backtracking!");
                         }
                     } else {
@@ -487,7 +487,6 @@ impl<L: Language> History<L> {
 
         // empty proof when one of them is a hole
         if left.node == None {
-            // left holes could be a bound variable
             if left.var_reference > 0 {
                 if var_memo[left.var_reference].node == None {
                     var_memo[left.var_reference] =  right.clone();
@@ -500,7 +499,17 @@ impl<L: Language> History<L> {
                 return Some(vec![right.clone()]);
             }
         } else if right.node == None {
-            return Some(vec![left.clone()]);
+            if right.var_reference > 0 {
+                if var_memo[right.var_reference].node == None {
+                    var_memo[right.var_reference] = left.clone();
+                    return Some(vec![left.clone()]);
+                } else {
+                    // found a bound variable in the expression
+                    right = var_memo[right.var_reference].clone();
+                }
+            } else {
+                return Some(vec![left.clone()]);
+            }
         }
 
         let seen_entry = (left.clone().alpha_normalize(), right.clone().alpha_normalize());
