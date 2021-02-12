@@ -12,8 +12,9 @@ pub type Proof<L> = Vec<Rc<NodeExpr<L>>>;
 
 // so that creating a new path with 1 added is O(log(n))
 type PathRecord<T, J> = (rpds::List<T>, HashTrieMap<T, J>);
+type SeenMemo<L> = HashTrieSet<(Rc<NodeExpr<L>>, Rc<NodeExpr<L>>)>;
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 enum RuleReference<L> {
     Index(usize),
     Pattern((PatternAst<L>, PatternAst<L>, String)),
@@ -27,7 +28,7 @@ pub struct RewriteConnection<L: Language> {
     rule_ref: RuleReference<L>,
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub struct NodeExpr<L: Language> {
     node: Option<L>, // sometimes we have a hole
     children: Vec<Rc<NodeExpr<L>>>,
@@ -355,7 +356,7 @@ impl<L: Language> History<L> {
             let rg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, right));
             let mut var_memo = Default::default();
             let mut var_counter = 1;
-            let seen_memo: HashTrieSet<(L, L)> = Default::default();
+            let seen_memo: SeenMemo<L> = Default::default();
             return self.recursive_proof(
                 egraph,
                 rules,
@@ -441,7 +442,7 @@ impl<L: Language> History<L> {
         right_input: Rc<NodeExpr<L>>,
         var_memo: &mut HashMap<usize, Rc<NodeExpr<L>>>,
         var_counter: &mut usize,
-        seen_memo: HashTrieSet<(L, L)>,
+        seen_memo: SeenMemo<L>,
     ) -> Option<Vec<Rc<NodeExpr<L>>>> {
         let mut left = left_input;
         let mut right = right_input;
@@ -467,12 +468,7 @@ impl<L: Language> History<L> {
             return Some(vec![left.clone()]);
         }
 
-        let mut seen_1 = left.node.as_ref().unwrap().clone();
-        let mut seen_2 = right.node.as_ref().unwrap().clone();
-        if seen_1 > seen_2 {
-            std::mem::swap(&mut seen_1, &mut seen_2);
-        }
-        let seen_entry = (seen_1, seen_2);
+        let seen_entry = (left.clone(), right.clone());
         if seen_memo.contains(&seen_entry) {
             return None;
         }
@@ -628,7 +624,7 @@ impl<L: Language> History<L> {
         proof: &mut Vec<Rc<NodeExpr<L>>>,
         var_memo: &mut HashMap<usize, Rc<NodeExpr<L>>>,
         var_counter: &mut usize,
-        seen_memo: HashTrieSet<(L, L)>,
+        seen_memo: SeenMemo<L>,
     ) -> bool {
         let left = proof[proof.len() - 1].clone();
         if left.children.len() != right.children.len() {

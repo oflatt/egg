@@ -401,13 +401,13 @@ egg::test_fn! {
                          "(+ (+ (=> a) 0) 0)", "add-zero =>", "(+ (+ (+ a 0) 0) 0)"]);
     }
 }
-/*
+
 egg::test_fn! {
     math_test_prove_simplify_const, rules(),
     runner = Runner::default()
         .with_iter_limit(2)
         .with_scheduler(SimpleScheduler),
-        "1" => "(+ 1 (- a (* (- 2 1) a)))"
+        "(+ 1 (- a (* (- 2 1) a)))" => "1"
     @check |mut r: Runner<Math, ConstantFold>| {
         r.egraph.dot().to_png("target/newegraph.png").unwrap();
         println!("running proof");
@@ -426,7 +426,7 @@ egg::test_fn! {
                     "(+ 1 (- a (* (<= (- 2 1)) a)))"]);
 
     }
-}*/
+}
 
 
 egg::test_fn! {
