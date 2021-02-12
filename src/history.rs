@@ -74,6 +74,39 @@ impl<L: Language> NodeExpr<L> {
         res
     }
 
+    fn get_variable_refs(&self, acc: &mut Vec<usize>) {
+        if self.var_reference != 0 {
+            acc.push(self.var_reference);
+        }
+        self.children.iter().for_each(|child| child.get_variable_refs(acc));
+    }
+
+    pub fn alpha_normalize(&self) -> Rc<NodeExpr<L>> {
+        let mut vars = vec![];
+        self.get_variable_refs(&mut vars);
+        vars.sort_unstable();
+        vars.dedup();
+        let mut map: HashMap<usize, usize> = Default::default();
+        for (i, v) in vars.iter().enumerate() {
+            map.insert(*v, i);
+        }
+        Rc::new(self.alpha_normalize_with(&map))
+    }
+
+    fn alpha_normalize_with(&self, map: &HashMap<usize, usize>) -> NodeExpr<L> {
+        let mut head = self.clone();
+        if self.var_reference != 0 {
+            head.var_reference = *map.get(&head.var_reference).unwrap();
+        }
+        head.children = head.children.iter()
+                                     .map(|child| {
+                                        let c = child.alpha_normalize_with(map);
+                                        Rc::new(c)
+                                     })
+                                     .collect();
+        head
+    }
+
     pub fn to_sexp(&self) -> Sexp {
         match &self.node {
             Some(node) => {
@@ -98,7 +131,11 @@ impl<L: Language> NodeExpr<L> {
                 }
                 res
             }
-            None => Sexp::String("hole".to_string()),
+            None => Sexp::String(
+                "(variable-referencing ".to_string()
+                    + &self.var_reference.to_string()
+                    + &")".to_string(),
+            ),
         }
     }
 
@@ -146,12 +183,11 @@ impl<L: Language> NodeExpr<L> {
         ast: &PatternAst<L>,
         subst: &Subst,
         substmap: Option<&HashMap<Var, Rc<NodeExpr<L>>>>, // optionally used to replace variables with nodeexpr
-        var_memo: Option<&mut HashMap<usize, Rc<NodeExpr<L>>>>, // add to this for variable bindings
-        start_var_counter: Option<usize>,                 // we return the new var counter
-    ) -> (Self, usize) {
-        let mut dummy_hashmap = Default::default();
-        let mut var_memo_unwrapped = var_memo.unwrap_or_else(|| &mut dummy_hashmap);
-        let mut var_counter = start_var_counter.unwrap_or(0);
+        var_memo: Option<&mut Vec<Rc<NodeExpr<L>>>>, // add this for variable bindings
+    ) -> Self {
+        let mut dummy = Default::default();
+        let use_memo = var_memo != None;
+        let var_memo_unwrapped = var_memo.unwrap_or(&mut dummy);
         let mut symbol_map: HashMap<&Var, usize> = Default::default();
         let nodes = ast.as_ref();
         let mut nodeexprs: Vec<Rc<NodeExpr<L>>> = Vec::with_capacity(nodes.len());
@@ -159,26 +195,29 @@ impl<L: Language> NodeExpr<L> {
         for nodeorvar in nodes {
             match nodeorvar {
                 ENodeOrVar::Var(v) => {
+                    let mut added = false;
                     if let Some(map) = substmap {
                         if let Some(substitution) = map.get(v) {
                             nodeexprs.push(substitution.clone());
-                        } else {
-                            let mut var_num = var_counter;
+                            added = true;
+                        }
+                    }
+                    if !added {
+                        if use_memo {
+                            let mut var_num = var_memo_unwrapped.len();
                             if let Some(n) = symbol_map.get(v) {
                                 var_num = *n;
                             } else {
                                 symbol_map.insert(v, var_num);
-                                var_memo_unwrapped
-                                    .insert(var_num, Rc::new(NodeExpr::new(None, vec![])));
-                                var_counter += 1;
+                                var_memo_unwrapped.push(Rc::new(NodeExpr::new(None, vec![])));
                             }
 
                             let mut newexpr = NodeExpr::new(None, vec![]);
                             newexpr.var_reference = var_num;
                             nodeexprs.push(Rc::new(newexpr));
+                        } else {
+                            nodeexprs.push(Rc::new(NodeExpr::new(None, vec![])));
                         }
-                    } else {
-                        nodeexprs.push(Rc::new(NodeExpr::new(None, vec![])));
                     }
                     // substs may have old ids
                     new_ids.push(egraph.find(subst[*v]));
@@ -196,7 +235,7 @@ impl<L: Language> NodeExpr<L> {
         }
 
         // last nodeexpr, the top node
-        ((*nodeexprs.pop().unwrap()).clone(), var_counter)
+        (*nodeexprs.pop().unwrap()).clone()
     }
 
     fn make_subst(
@@ -229,20 +268,17 @@ impl<L: Language> NodeExpr<L> {
         left: &PatternAst<L>,
         right: &PatternAst<L>,
         subst: &Subst,
-        var_memo: &mut HashMap<usize, Rc<NodeExpr<L>>>,
-        var_counter: &mut usize,
+        var_memo: &mut Vec<Rc<NodeExpr<L>>>,
     ) -> NodeExpr<L> {
         let mut graphsubst = Default::default();
         self.make_subst(left, Id::from(left.as_ref().len() - 1), &mut graphsubst);
-        let (pattern, new_var_counter) = NodeExpr::from_pattern_ast::<N>(
+        let pattern = NodeExpr::from_pattern_ast::<N>(
             egraph,
             right,
             subst,
             Some(&graphsubst),
             Some(var_memo),
-            Some(*var_counter),
         );
-        *var_counter = new_var_counter;
         pattern
     }
 }
@@ -300,8 +336,8 @@ impl<L: Language> History<L> {
         subst: Subst,
         reason: String,
     ) {
-        let (from_node, _) = NodeExpr::from_pattern_ast(egraph, &from, &subst, None, None, None);
-        let (to_node, _) = NodeExpr::from_pattern_ast(egraph, &to, &subst, None, None, None);
+        let from_node = NodeExpr::from_pattern_ast(egraph, &from, &subst, None, None);
+        let to_node = NodeExpr::from_pattern_ast(egraph, &to, &subst, None, None);
         self.add_connection(
             from_node.node.unwrap(),
             to_node.node.unwrap(),
@@ -354,8 +390,9 @@ impl<L: Language> History<L> {
         } else {
             let lg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, left));
             let rg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, right));
-            let mut var_memo = Default::default();
-            let mut var_counter = 1;
+            let mut var_memo: Vec<Rc<NodeExpr<L>>> = Default::default();
+            // push since 0 is a special value and represents no variable
+            var_memo.push(Rc::new(NodeExpr::new(None, vec![])));
             let seen_memo: SeenMemo<L> = Default::default();
             return self.recursive_proof(
                 egraph,
@@ -363,8 +400,7 @@ impl<L: Language> History<L> {
                 lg,
                 rg,
                 &mut var_memo,
-                &mut var_counter,
-                seen_memo,
+                seen_memo
             );
         }
     }
@@ -440,8 +476,7 @@ impl<L: Language> History<L> {
         rules: &[&Rewrite<L, N>],
         left_input: Rc<NodeExpr<L>>,
         right_input: Rc<NodeExpr<L>>,
-        var_memo: &mut HashMap<usize, Rc<NodeExpr<L>>>,
-        var_counter: &mut usize,
+        var_memo: &mut Vec<Rc<NodeExpr<L>>>,
         seen_memo: SeenMemo<L>,
     ) -> Option<Vec<Rc<NodeExpr<L>>>> {
         let mut left = left_input;
@@ -454,12 +489,12 @@ impl<L: Language> History<L> {
         if left.node == None {
             // left holes could be a bound variable
             if left.var_reference > 0 {
-                if var_memo.get(&left.var_reference).unwrap().node == None {
-                    var_memo.insert(left.var_reference, right.clone());
+                if var_memo[left.var_reference].node == None {
+                    var_memo[left.var_reference] =  right.clone();
                     return Some(vec![right.clone()]);
                 } else {
                     // found a bound variable in the expression
-                    left = var_memo.get(&left.var_reference).unwrap().clone();
+                    left = var_memo[left.var_reference].clone();
                 }
             } else {
                 return Some(vec![right.clone()]);
@@ -468,7 +503,7 @@ impl<L: Language> History<L> {
             return Some(vec![left.clone()]);
         }
 
-        let seen_entry = (left.clone(), right.clone());
+        let seen_entry = (left.clone().alpha_normalize(), right.clone().alpha_normalize());
         if seen_memo.contains(&seen_entry) {
             return None;
         }
@@ -505,17 +540,13 @@ impl<L: Language> History<L> {
 
                 //println!("rule: {} => {}", sast.to_string(), rast.to_string());
 
-                let search_pattern = Rc::new(
-                    NodeExpr::from_pattern_ast::<N>(
-                        egraph,
-                        sast,
-                        &connection.subst,
-                        None,
-                        None,
-                        None,
-                    )
-                    .0,
-                );
+                let search_pattern = Rc::new(NodeExpr::from_pattern_ast::<N>(
+                    egraph,
+                    sast,
+                    &connection.subst,
+                    None,
+                    Some(var_memo),
+                ));
 
                 // first prove it matches the search_pattern
                 println!(
@@ -530,7 +561,6 @@ impl<L: Language> History<L> {
                     proof[proof.len() - 1].clone(),
                     search_pattern,
                     var_memo,
-                    var_counter,
                     new_seen_memo.clone(),
                 );
                 if subproof_maybe == None {
@@ -549,7 +579,6 @@ impl<L: Language> History<L> {
                     rast,
                     &connection.subst,
                     var_memo,
-                    var_counter,
                 );
                 let mut newlink = (*latest).clone();
                 newlink.rule_ref = connection.rule_ref.clone();
@@ -581,7 +610,6 @@ impl<L: Language> History<L> {
                     latest,
                     right.clone(),
                     var_memo,
-                    var_counter,
                     new_seen_memo.clone(),
                 );
                 if let Some(rest) = rest_of_proof {
@@ -598,7 +626,6 @@ impl<L: Language> History<L> {
                     right.clone(),
                     &mut proof,
                     var_memo,
-                    var_counter,
                     new_seen_memo.clone(),
                 )) {
                     Some(proof)
@@ -622,8 +649,7 @@ impl<L: Language> History<L> {
         rules: &[&Rewrite<L, N>],
         right: Rc<NodeExpr<L>>,
         proof: &mut Vec<Rc<NodeExpr<L>>>,
-        var_memo: &mut HashMap<usize, Rc<NodeExpr<L>>>,
-        var_counter: &mut usize,
+        var_memo: &mut Vec<Rc<NodeExpr<L>>>,
         seen_memo: SeenMemo<L>,
     ) -> bool {
         let left = proof[proof.len() - 1].clone();
@@ -643,7 +669,6 @@ impl<L: Language> History<L> {
                 lchild,
                 rchild,
                 var_memo,
-                var_counter,
                 seen_memo.clone(),
             );
             if proof_equal_maybe == None {

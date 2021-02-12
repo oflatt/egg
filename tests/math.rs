@@ -428,7 +428,6 @@ egg::test_fn! {
     }
 }
 
-
 egg::test_fn! {
     math_test_prove_simplify_const_backwards, rules(),
     runner = Runner::default()
