@@ -401,9 +401,36 @@ egg::test_fn! {
                          "(+ (+ (=> a) 0) 0)", "add-zero =>", "(+ (+ (+ a 0) 0) 0)"]);
     }
 }
-
+/*
 egg::test_fn! {
     math_test_prove_simplify_const, rules(),
+    runner = Runner::default()
+        .with_iter_limit(2)
+        .with_scheduler(SimpleScheduler),
+        "1" => "(+ 1 (- a (* (- 2 1) a)))"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        r.egraph.dot().to_png("target/newegraph.png").unwrap();
+        println!("running proof");
+        check_proof(&mut r, rules(), "(+ 1 (- a (* (- 2 1) a)))",
+                                    "1",
+                    vec!["1",
+                    "<= metadata-eval",
+                    "(<= (+ 1 0))",
+                    "<= cancel-sub",
+                    "(+ 1 (<= (- a (=> a))))",
+                    "mul-one =>",
+                    "(+ 1 (- a (* a 1)))",
+                    "<= comm-mul",
+                    "(+ 1 (- a (<= (* 1 a))))",
+                    "<= metadata-eval",
+                    "(+ 1 (- a (* (<= (- 2 1)) a)))"]);
+
+    }
+}*/
+
+
+egg::test_fn! {
+    math_test_prove_simplify_const_backwards, rules(),
     runner = Runner::default()
         .with_iter_limit(2)
         .with_scheduler(SimpleScheduler),
@@ -413,8 +440,17 @@ egg::test_fn! {
         println!("running proof");
         check_proof(&mut r, rules(), "1",
                         "(+ 1 (- a (* (- 2 1) a)))",
-                    vec!["(+ 1 (- a (* (=> (- 2 1)) a)))",
-                         "metadata-eval"]);
+                    vec!["1",
+                    "<= metadata-eval",
+                    "(<= (+ 1 0))",
+                    "<= cancel-sub",
+                    "(+ 1 (<= (- a (=> a))))",
+                    "mul-one =>",
+                    "(+ 1 (- a (* a 1)))",
+                    "<= comm-mul",
+                    "(+ 1 (- a (<= (* 1 a))))",
+                    "<= metadata-eval",
+                    "(+ 1 (- a (* (<= (- 2 1)) a)))"]);
 
     }
 }

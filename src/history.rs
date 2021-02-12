@@ -1,13 +1,17 @@
-use crate::util::{HashMap, HashSet};
+use crate::util::HashMap;
 use crate::{
     Analysis, Applications, EGraph, ENodeOrVar, Id, Language, PatternAst, RecExpr, Rewrite, Subst,
     Var,
 };
+use rpds::{HashTrieMap, HashTrieSet, List};
 use std::collections::VecDeque;
 use std::rc::Rc;
 use symbolic_expressions::Sexp;
 
 pub type Proof<L> = Vec<Rc<NodeExpr<L>>>;
+
+// so that creating a new path with 1 added is O(log(n))
+type PathRecord<T, J> = (rpds::List<T>, HashTrieMap<T, J>);
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 enum RuleReference<L> {
@@ -31,7 +35,7 @@ pub struct NodeExpr<L: Language> {
     is_direction_forward: bool,
     is_rewritten_forward: bool,
     is_rewritten_backwards: bool,
-    var_reference: usize // used to keep track of variable bindings, 0 means no reference
+    var_reference: usize, // used to keep track of variable bindings, 0 means no reference
 }
 
 fn enode_to_string<L: Language>(node_ref: &L) -> String {
@@ -52,7 +56,7 @@ impl<L: Language> NodeExpr<L> {
             is_direction_forward: true,
             is_rewritten_forward: false,
             is_rewritten_backwards: false,
-            var_reference: 0
+            var_reference: 0,
         }
     }
 
@@ -142,7 +146,7 @@ impl<L: Language> NodeExpr<L> {
         subst: &Subst,
         substmap: Option<&HashMap<Var, Rc<NodeExpr<L>>>>, // optionally used to replace variables with nodeexpr
         var_memo: Option<&mut HashMap<usize, Rc<NodeExpr<L>>>>, // add to this for variable bindings
-        start_var_counter: Option<usize>,// we return the new var counter
+        start_var_counter: Option<usize>,                 // we return the new var counter
     ) -> (Self, usize) {
         let mut dummy_hashmap = Default::default();
         let mut var_memo_unwrapped = var_memo.unwrap_or_else(|| &mut dummy_hashmap);
@@ -163,7 +167,8 @@ impl<L: Language> NodeExpr<L> {
                                 var_num = *n;
                             } else {
                                 symbol_map.insert(v, var_num);
-                                var_memo_unwrapped.insert(var_num, Rc::new(NodeExpr::new(None, vec![])));
+                                var_memo_unwrapped
+                                    .insert(var_num, Rc::new(NodeExpr::new(None, vec![])));
                                 var_counter += 1;
                             }
 
@@ -234,7 +239,7 @@ impl<L: Language> NodeExpr<L> {
             subst,
             Some(&graphsubst),
             Some(var_memo),
-            Some(*var_counter)
+            Some(*var_counter),
         );
         *var_counter = new_var_counter;
         pattern
@@ -350,153 +355,82 @@ impl<L: Language> History<L> {
             let rg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, right));
             let mut var_memo = Default::default();
             let mut var_counter = 1;
-            return Some(self.recursive_proof(egraph, rules, lg, rg, &mut var_memo, &mut var_counter));
-        }
-    }
-
-    fn does_searcher_match_var<N: Analysis<L>>(
-        rules: &[&Rewrite<L, N>],
-        rule_ref: &RuleReference<L>,
-    ) -> bool {
-        match rule_ref {
-            RuleReference::Index(i) => {
-                let ast = rules[*i].searcher.get_ast()
-                                            .unwrap_or_else(|| panic!("Searcher must implement get_ast")).as_ref();
-                if ast.len() == 1 {
-                    if let ENodeOrVar::Var(_) = ast[0] {
-                        return true;
-                    }
-                }
-            }
-            RuleReference::Pattern((searcher, _a, _r)) => {
-                let ast = searcher.as_ref();
-                if ast.len() == 1 {
-                    if let ENodeOrVar::Var(_) = ast[0] {
-                        return true;
-                    }
-                }
-            }
-        };
-        return false;
-    }
-
-    fn does_applier_match_var<N: Analysis<L>>(rules: &[&Rewrite<L, N>], rule_ref: &RuleReference<L>) -> bool {
-        match rule_ref {
-            RuleReference::Index(i) => {
-                let ast = rules[*i].applier.get_ast()
-                                            .unwrap_or_else(|| panic!("Searcher must implement get_ast")).as_ref();
-                if ast.len() == 1 {
-                    if let ENodeOrVar::Var(_) = ast[0] {
-                        return true;
-                    }
-                }
-            }
-            RuleReference::Pattern((_s, applier, _r)) => {
-                let ast = applier.as_ref();
-                if ast.len() == 1 {
-                    if let ENodeOrVar::Var(_) = ast[0] {
-                        return true;
-                    }
-                }
-            }
-        };
-        return false;
-    }
-
-    fn is_trivial_on<N: Analysis<L>>(rules: &[&Rewrite<L, N>], rule_ref: &RuleReference<L>, searcher: bool) -> bool {
-        if searcher {
-          History::<L>::does_searcher_match_var::<N>(rules, rule_ref)    
-        } else {
-          History::<L>::does_applier_match_var::<N>(rules, rule_ref)    
+            let seen_memo: HashTrieSet<(L, L)> = Default::default();
+            return self.recursive_proof(
+                egraph,
+                rules,
+                lg,
+                rg,
+                &mut var_memo,
+                &mut var_counter,
+                seen_memo,
+            );
         }
     }
 
     // find a sequence of rewrites between two enodes
-    // this performs a breadth first search to find the one unique path in the graph
-    fn find_proof_path<N: Analysis<L>>(
+    fn find_proof_path<
+        N: Analysis<L>,
+        F: FnMut(Vec<&RewriteConnection<L>>) -> Option<Vec<Rc<NodeExpr<L>>>>,
+    >(
         &self,
         rules: &[&Rewrite<L, N>],
         left: &L,
         right: &L,
-    ) -> Vec<&RewriteConnection<L>> {
+        yield_fn: &mut F,
+    ) -> Option<Vec<Rc<NodeExpr<L>>>> {
         if (left == right) {
-            return vec![];
+            return yield_fn(vec![]);
         }
-        let mut seen: HashSet<&L> = Default::default();
-        // keep track of if the current path is non-trivial
-        // a trivial path is one that starts by matching a variable and ends by substituting a variable
-        // example: a trivial path is a -> (+ a 0) -> a
-        let mut is_trivial: HashMap<&L, bool> = Default::default();
-        let mut prev_node: HashMap<&L, &L> = Default::default();
-        let mut prev: HashMap<&L, &RewriteConnection<L>> = Default::default();
-        let mut todo: VecDeque<&L> = VecDeque::new();
-        todo.push_back(left);
-        is_trivial.insert(left, false);
+        let dummy = RewriteConnection {
+            node: left.clone(),
+            rule_ref: RuleReference::Index(0),
+            subst: Default::default(),
+            is_direction_forward: true,
+        };
+        let mut todo: VecDeque<PathRecord<&L, &RewriteConnection<L>>> = VecDeque::new();
+        let first_list = List::<&L>::new().push_front(left);
+        let first_map = HashTrieMap::<&L, &RewriteConnection<L>>::new().insert(left, &dummy);
+        todo.push_back((first_list, first_map));
 
         while true {
             if todo.len() == 0 {
-                // TODO make this a result instead of panic
-                panic!("could not find proof path");
+                return None;
             }
-            let current = todo.pop_front().unwrap();
-            match seen.get(current) {
-                Some(_) => continue,
-                None => seen.insert(current),
-            };
+            let (current_list, current_set) = todo.pop_front().unwrap();
 
-            if let Some(children) = self.graph.get(current) {
-                let mut found = false;
+            if let Some(children) = self.graph.get(current_list.first().unwrap()) {
                 let mut children_iterator = children.iter();
-                for child in children_iterator.rev() {
-                    let mut current_trivial = *is_trivial.get(current).unwrap();
-                    if (current == left) {
-                        if History::<L>::is_trivial_on::<N>(rules, &child.rule_ref, child.is_direction_forward) {
-                            //println!("starting path trivial");
-                            current_trivial = true;
-                        }
-                    }
-
-                    // we want to re-explore if we have now found a non-trivial way to get to a node
-                    if let Some(true) = is_trivial.get(&child.node) {
-                        if !current_trivial {
-                            seen.remove(&child.node);
-                        }
-                    } else if (current_trivial && (is_trivial.get(&child.node) == Some(&false))) {
-                        // we don't add the next node if we are trivial and 
-                        // there is a non-trivial path
+                for child in children_iterator {
+                    if current_set.contains_key(&child.node) {
                         continue;
                     }
 
-                    if seen.get(&child.node) == None {
-                        is_trivial.insert(&child.node, current_trivial);
-                    }
-
-                    prev.insert(&child.node, child);
-                    prev_node.insert(&child.node, current);
+                    let new_list = current_list.push_front(&child.node);
+                    let new_map = current_set.insert(&child.node, child);
                     if &child.node == right {
-                        if !(current_trivial
-                            && History::<L>::is_trivial_on::<N>(rules, &child.rule_ref, !child.is_direction_forward))
-                        {
-                            // we found a non-trivial path
-                            found = true;
-                            break;
+                        let mut found_path = vec![];
+                        let mut list_nodes = new_list.clone();
+                        while list_nodes.len() > 1 {
+                            let current = list_nodes.first().unwrap();
+                            found_path.push(*new_map.get(current).unwrap());
+                            list_nodes = list_nodes.drop_first().unwrap();
                         }
+                        found_path.reverse();
+
+                        if let Some(answer) = yield_fn(found_path) {
+                            return Some(answer);
+                        } else {
+                            println!("###########backtracking!");
+                        }
+                    } else {
+                        todo.push_back((new_list, new_map));
                     }
-                    todo.push_back(&child.node);
-                }
-                if (found) {
-                    break;
                 }
             }
         }
-        let mut path = vec![];
-        let mut current: &L = right;
-        while (current != left) {
-            path.push(*prev.get(current).unwrap());
-            current = prev_node.get(current).unwrap();
-        }
-        path.reverse();
-        path
+
+        return None;
     }
 
     fn recursive_proof<N: Analysis<L>>(
@@ -507,7 +441,8 @@ impl<L: Language> History<L> {
         right_input: Rc<NodeExpr<L>>,
         var_memo: &mut HashMap<usize, Rc<NodeExpr<L>>>,
         var_counter: &mut usize,
-    ) -> Vec<Rc<NodeExpr<L>>> {
+        seen_memo: HashTrieSet<(L, L)>,
+    ) -> Option<Vec<Rc<NodeExpr<L>>>> {
         let mut left = left_input;
         let mut right = right_input;
         if (left.node == None && right.node == None) {
@@ -520,117 +455,169 @@ impl<L: Language> History<L> {
             if left.var_reference > 0 {
                 if var_memo.get(&left.var_reference).unwrap().node == None {
                     var_memo.insert(left.var_reference, right.clone());
-                    return vec![right.clone()];
+                    return Some(vec![right.clone()]);
                 } else {
                     // found a bound variable in the expression
                     left = var_memo.get(&left.var_reference).unwrap().clone();
                 }
             } else {
-                return vec![right.clone()];
+                return Some(vec![right.clone()]);
             }
         } else if right.node == None {
-            return vec![left.clone()];
+            return Some(vec![left.clone()]);
         }
 
-        let mut proof: Vec<Rc<NodeExpr<L>>> = vec![];
-        proof.push(left.clone());
+        let mut seen_1 = left.node.as_ref().unwrap().clone();
+        let mut seen_2 = right.node.as_ref().unwrap().clone();
+        if seen_1 > seen_2 {
+            std::mem::swap(&mut seen_1, &mut seen_2);
+        }
+        let seen_entry = (seen_1, seen_2);
+        if seen_memo.contains(&seen_entry) {
+            return None;
+        }
 
         assert_eq!(
             egraph.lookup(left.node.as_ref().unwrap().clone()),
             egraph.lookup(right.node.as_ref().unwrap().clone())
         );
-        let path = self.find_proof_path::<N>(
+        let new_seen_memo = seen_memo.insert(seen_entry.clone());
+
+        let handle_proof_path = &mut |path: Vec<&RewriteConnection<L>>| {
+            let mut proof: Vec<Rc<NodeExpr<L>>> = vec![];
+            proof.push(left.clone());
+            for connection in path.iter() {
+                let mut sast = match &connection.rule_ref {
+                    RuleReference::Index(i) => rules[*i]
+                        .searcher
+                        .get_ast()
+                        .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
+                    RuleReference::Pattern((left, _right, _reaon)) => &left,
+                };
+
+                let mut rast = match &connection.rule_ref {
+                    RuleReference::Index(i) => rules[*i]
+                        .applier
+                        .get_ast()
+                        .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
+                    RuleReference::Pattern((_left, right, _reaon)) => right,
+                };
+
+                if !connection.is_direction_forward {
+                    std::mem::swap(&mut sast, &mut rast);
+                }
+
+                //println!("rule: {} => {}", sast.to_string(), rast.to_string());
+
+                let search_pattern = Rc::new(
+                    NodeExpr::from_pattern_ast::<N>(
+                        egraph,
+                        sast,
+                        &connection.subst,
+                        None,
+                        None,
+                        None,
+                    )
+                    .0,
+                );
+
+                // first prove it matches the search_pattern
+                println!(
+                    "proving {} and {}",
+                    proof[proof.len() - 1].to_string(),
+                    right.to_string()
+                );
+                println!("proving matches pattern {}", search_pattern.to_string());
+                let subproof_maybe = self.recursive_proof(
+                    egraph,
+                    rules,
+                    proof[proof.len() - 1].clone(),
+                    search_pattern,
+                    var_memo,
+                    var_counter,
+                    new_seen_memo.clone(),
+                );
+                if subproof_maybe == None {
+                    return None;
+                }
+                let subproof = subproof_maybe.unwrap();
+                if subproof.len() > 1 {
+                    proof.pop();
+                    proof.extend(subproof);
+                }
+
+                let latest = proof.pop().unwrap();
+                let mut next = latest.rewrite::<N>(
+                    egraph,
+                    sast,
+                    rast,
+                    &connection.subst,
+                    var_memo,
+                    var_counter,
+                );
+                let mut newlink = (*latest).clone();
+                newlink.rule_ref = connection.rule_ref.clone();
+                newlink.is_direction_forward = connection.is_direction_forward;
+                if connection.is_direction_forward {
+                    newlink.is_rewritten_forward = true;
+                } else {
+                    newlink.is_rewritten_forward = false;
+                }
+                if !connection.is_direction_forward {
+                    next.is_rewritten_backwards = true;
+                } else {
+                    next.is_rewritten_backwards = false;
+                }
+                proof.push(Rc::new(newlink));
+                proof.push(Rc::new(next));
+            }
+
+            // we may have removed one layer in the expression, so prove equal again
+            if proof[proof.len() - 1].node != right.node {
+                let latest = proof.pop().unwrap();
+                println!(
+                    "proving children equal because we unwrapped {}",
+                    latest.to_string()
+                );
+                let rest_of_proof = self.recursive_proof(
+                    egraph,
+                    rules,
+                    latest,
+                    right.clone(),
+                    var_memo,
+                    var_counter,
+                    new_seen_memo.clone(),
+                );
+                if let Some(rest) = rest_of_proof {
+                    proof.extend(rest);
+                    Some(proof)
+                } else {
+                    None
+                }
+            } else {
+                // now that we have arrived at the correct enode, there may yet be work to do on the children
+                if (self.prove_children_equal(
+                    egraph,
+                    rules,
+                    right.clone(),
+                    &mut proof,
+                    var_memo,
+                    var_counter,
+                    new_seen_memo.clone(),
+                )) {
+                    Some(proof)
+                } else {
+                    None
+                }
+            }
+        };
+
+        self.find_proof_path(
             rules,
             left.node.as_ref().unwrap(),
             right.node.as_ref().unwrap(),
-        );
-
-        for connection in path.iter() {
-            let mut sast = match &connection.rule_ref {
-                RuleReference::Index(i) => rules[*i]
-                    .searcher
-                    .get_ast()
-                    .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
-                RuleReference::Pattern((left, _right, _reaon)) => &left,
-            };
-
-            let mut rast = match &connection.rule_ref {
-                RuleReference::Index(i) => rules[*i]
-                    .applier
-                    .get_ast()
-                    .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
-                RuleReference::Pattern((_left, right, _reaon)) => right,
-            };
-
-            if !connection.is_direction_forward {
-                std::mem::swap(&mut sast, &mut rast);
-            }
-
-            //println!("rule: {} => {}", sast.to_string(), rast.to_string());
-
-            let search_pattern = Rc::new(NodeExpr::from_pattern_ast::<N>(
-                egraph,
-                sast,
-                &connection.subst,
-                None,
-                None,
-                None
-            ).0);
-
-            // first prove it matches the search_pattern
-            println!(
-                "proving {} and {}",
-                proof[proof.len() - 1].to_string(),
-                right.to_string()
-            );
-            println!("proving matches pattern {}", search_pattern.to_string());
-            let subproof = self.recursive_proof(
-                egraph,
-                rules,
-                proof[proof.len() - 1].clone(),
-                search_pattern,
-                var_memo,
-                var_counter
-            );
-            if subproof.len() > 1 {
-                proof.pop();
-                proof.extend(subproof);
-            }
-
-            let latest = proof.pop().unwrap();
-            let mut next = latest.rewrite::<N>(egraph, sast, rast, &connection.subst, var_memo, var_counter);
-            let mut newlink = (*latest).clone();
-            newlink.rule_ref = connection.rule_ref.clone();
-            newlink.is_direction_forward = connection.is_direction_forward;
-            if connection.is_direction_forward {
-                newlink.is_rewritten_forward = true;
-            } else {
-                newlink.is_rewritten_forward = false;
-            }
-            if !connection.is_direction_forward {
-                next.is_rewritten_backwards = true;
-            } else {
-                next.is_rewritten_backwards = false;
-            }
-            proof.push(Rc::new(newlink));
-            proof.push(Rc::new(next));
-        }
-
-        // we may have removed one layer in the expression, so prove equal again
-        if proof[proof.len() - 1].node != right.node {
-            let latest = proof.pop().unwrap();
-            println!(
-                "proving children equal because we unwrapped {}",
-                latest.to_string()
-            );
-            let rest_of_proof = self.recursive_proof(egraph, rules, latest, right, var_memo, var_counter);
-            proof.extend(rest_of_proof);
-            proof
-        } else {
-            // now that we have arrived at the correct enode, there may yet be work to do on the children
-            self.prove_children_equal(egraph, rules, right, &mut proof, var_memo, var_counter);
-            proof
-        }
+            handle_proof_path,
+        )
     }
 
     fn prove_children_equal<N: Analysis<L>>(
@@ -640,8 +627,9 @@ impl<L: Language> History<L> {
         right: Rc<NodeExpr<L>>,
         proof: &mut Vec<Rc<NodeExpr<L>>>,
         var_memo: &mut HashMap<usize, Rc<NodeExpr<L>>>,
-        var_counter: &mut usize
-    ) {
+        var_counter: &mut usize,
+        seen_memo: HashTrieSet<(L, L)>,
+    ) -> bool {
         let left = proof[proof.len() - 1].clone();
         if left.children.len() != right.children.len() {
             panic!(
@@ -653,7 +641,19 @@ impl<L: Language> History<L> {
         for i in 0..left.children.len() {
             let lchild = left.children[i].clone();
             let rchild = right.children[i].clone();
-            let proof_equal = self.recursive_proof(egraph, rules, lchild, rchild, var_memo, var_counter);
+            let proof_equal_maybe = self.recursive_proof(
+                egraph,
+                rules,
+                lchild,
+                rchild,
+                var_memo,
+                var_counter,
+                seen_memo.clone(),
+            );
+            if proof_equal_maybe == None {
+                return false;
+            }
+            let proof_equal = proof_equal_maybe.unwrap();
             let mut latest = proof.pop().unwrap();
             for j in 0..proof_equal.len() {
                 let mut newlink = (*latest).clone();
@@ -668,5 +668,6 @@ impl<L: Language> History<L> {
                 latest = proof[proof.len() - 1].clone()
             }
         }
+        true
     }
 }
