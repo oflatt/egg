@@ -446,7 +446,8 @@ impl<L: Language> History<L> {
 
             if let Some(children) = self.graph.get(current) {
                 let mut found = false;
-                for child in children {
+                let mut children_iterator = children.iter();
+                for child in children_iterator.rev() {
                     let mut current_trivial = *is_trivial.get(current).unwrap();
                     if (current == left) {
                         if History::<L>::is_trivial_on::<N>(rules, &child.rule_ref, child.is_direction_forward) {
@@ -596,28 +597,6 @@ impl<L: Language> History<L> {
                 proof.extend(subproof);
             }
 
-            // now prove that matching variables are the same, as in (- a a)
-            /*let matched_search = proof.pop().unwrap();
-            let mut leftsubst = Default::default();
-            matched_search.make_subst(&sast, Id::from(sast.as_ref().len() - 1), &mut leftsubst);
-            let search_pattern_substituted = Rc::new(NodeExpr::from_pattern_ast::<N>(
-                egraph,
-                sast,
-                &connection.subst,
-                Some(&leftsubst),
-
-            ));
-    
-            let subproof2 = self.recursive_proof(
-                egraph,
-                rules,
-                matched_search.clone(),
-                search_pattern_substituted,
-                var_memo,
-                var_counter
-            );
-            proof.extend(subproof2);*/
-
             let latest = proof.pop().unwrap();
             let mut next = latest.rewrite::<N>(egraph, sast, rast, &connection.subst, var_memo, var_counter);
             let mut newlink = (*latest).clone();
@@ -625,9 +604,13 @@ impl<L: Language> History<L> {
             newlink.is_direction_forward = connection.is_direction_forward;
             if connection.is_direction_forward {
                 newlink.is_rewritten_forward = true;
+            } else {
+                newlink.is_rewritten_forward = false;
             }
             if !connection.is_direction_forward {
                 next.is_rewritten_backwards = true;
+            } else {
+                next.is_rewritten_backwards = false;
             }
             proof.push(Rc::new(newlink));
             proof.push(Rc::new(next));
@@ -677,6 +660,10 @@ impl<L: Language> History<L> {
                 newlink.children[i] = proof_equal[j].clone();
                 newlink.rule_ref = proof_equal[j].rule_ref.clone();
                 newlink.is_direction_forward = proof_equal[j].is_direction_forward;
+                if j != 0 {
+                    newlink.is_rewritten_forward = false;
+                    newlink.is_rewritten_backwards = false;
+                }
                 proof.push(Rc::new(newlink));
                 latest = proof[proof.len() - 1].clone()
             }
