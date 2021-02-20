@@ -610,6 +610,7 @@ impl<L: Language> History<L> {
                 }
 
                 let latest = proof.pop().unwrap();
+                println!("rewriting {}", latest.to_string());
                 let mut next = latest.rewrite::<N>(
                     egraph,
                     sast,
