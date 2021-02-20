@@ -48,6 +48,13 @@ fn enode_to_string<L: Language>(node_ref: &L) -> String {
     strings.concat()
 }
 
+fn unwrap_or_clone<L: Language>(node: Rc<NodeExpr<L>>) -> NodeExpr<L> {
+    match Rc::try_unwrap(node) {
+        Ok(n) => n,
+        Err(original) => (*original).clone()
+    }
+}
+
 impl<L: Language> NodeExpr<L> {
     pub fn new(node: Option<L>, children: Vec<Rc<NodeExpr<L>>>) -> NodeExpr<L> {
         NodeExpr {
@@ -209,7 +216,9 @@ impl<L: Language> NodeExpr<L> {
                                 var_num = *n;
                             } else {
                                 symbol_map.insert(v, var_num);
-                                var_memo_unwrapped.push(Rc::new(NodeExpr::new(None, vec![])));
+                                let mut new_placeholder = NodeExpr::new(None, vec![]);
+                                new_placeholder.var_reference = var_num;
+                                var_memo_unwrapped.push(Rc::new(new_placeholder));
                             }
 
                             let mut newexpr = NodeExpr::new(None, vec![]);
@@ -235,7 +244,7 @@ impl<L: Language> NodeExpr<L> {
         }
 
         // last nodeexpr, the top node
-        (*nodeexprs.pop().unwrap()).clone()
+        unwrap_or_clone(nodeexprs.pop().unwrap())
     }
 
     fn make_subst(
@@ -470,6 +479,29 @@ impl<L: Language> History<L> {
         return None;
     }
 
+    fn get_from_var_memo(node: &Rc<NodeExpr<L>>, var_memo: &mut Vec<Rc<NodeExpr<L>>>) -> Rc<NodeExpr<L>> {
+        let mut current = node.clone();
+        let mut var_ref = 0;
+        while current.var_reference != var_ref && current.node == None {
+            var_ref = current.var_reference;
+            current = var_memo[current.var_reference].clone();
+        }
+        // path compression
+        /*
+        if node.var_reference != 0 {
+            if node.var_reference != var_ref {
+                let mut replacement = (*var_memo[node.var_reference]).clone();
+                replacement.var_reference = var_ref;
+                var_memo[node.var_reference] = Rc::new(replacement);
+            }
+        }*/
+        return current;
+    }
+
+    fn var_memo_union(left: &Rc<NodeExpr<L>>, right: &Rc<NodeExpr<L>>, var_memo: &mut Vec<Rc<NodeExpr<L>>>) {
+        var_memo[right.var_reference] = left.clone();
+    }
+
     fn recursive_proof<N: Analysis<L>>(
         &self,
         egraph: &mut EGraph<L, N>,
@@ -479,10 +511,12 @@ impl<L: Language> History<L> {
         var_memo: &mut Vec<Rc<NodeExpr<L>>>,
         seen_memo: SeenMemo<L>,
     ) -> Option<Vec<Rc<NodeExpr<L>>>> {
-        let mut left = left_input;
-        let mut right = right_input;
+        let mut left = History::<L>::get_from_var_memo(&left_input, var_memo);
+        let mut right = History::<L>::get_from_var_memo(&right_input, var_memo);
+        // union them when they are both variables
         if (left.node == None && right.node == None) {
-            panic!("Can't prove two holes equal");
+            History::<L>::var_memo_union(&left, &right, var_memo);
+            return Some(vec![left.clone()]);
         }
 
         // empty proof when one of them is a hole
@@ -491,9 +525,6 @@ impl<L: Language> History<L> {
                 if var_memo[left.var_reference].node == None {
                     var_memo[left.var_reference] =  right.clone();
                     return Some(vec![right.clone()]);
-                } else {
-                    // found a bound variable in the expression
-                    left = var_memo[left.var_reference].clone();
                 }
             } else {
                 return Some(vec![right.clone()]);
@@ -503,9 +534,6 @@ impl<L: Language> History<L> {
                 if var_memo[right.var_reference].node == None {
                     var_memo[right.var_reference] = left.clone();
                     return Some(vec![left.clone()]);
-                } else {
-                    // found a bound variable in the expression
-                    right = var_memo[right.var_reference].clone();
                 }
             } else {
                 return Some(vec![left.clone()]);
@@ -589,7 +617,7 @@ impl<L: Language> History<L> {
                     &connection.subst,
                     var_memo,
                 );
-                let mut newlink = (*latest).clone();
+                let mut newlink = unwrap_or_clone(latest);
                 newlink.rule_ref = connection.rule_ref.clone();
                 newlink.is_direction_forward = connection.is_direction_forward;
                 if connection.is_direction_forward {
@@ -686,7 +714,7 @@ impl<L: Language> History<L> {
             let proof_equal = proof_equal_maybe.unwrap();
             let mut latest = proof.pop().unwrap();
             for j in 0..proof_equal.len() {
-                let mut newlink = (*latest).clone();
+                let mut newlink = unwrap_or_clone(latest);
                 newlink.children[i] = proof_equal[j].clone();
                 newlink.rule_ref = proof_equal[j].rule_ref.clone();
                 newlink.is_direction_forward = proof_equal[j].is_direction_forward;

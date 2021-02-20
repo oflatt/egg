@@ -402,6 +402,7 @@ egg::test_fn! {
     }
 }
 
+
 egg::test_fn! {
     math_test_prove_simplify_const, rules(),
     runner = Runner::default()
@@ -409,21 +410,12 @@ egg::test_fn! {
         .with_scheduler(SimpleScheduler),
         "(+ 1 (- a (* (- 2 1) a)))" => "1"
     @check |mut r: Runner<Math, ConstantFold>| {
-        r.egraph.dot().to_png("target/newegraph.png").unwrap();
+        //r.egraph.dot().to_png("target/newegraph.png").unwrap();
         println!("running proof");
         check_proof(&mut r, rules(), "(+ 1 (- a (* (- 2 1) a)))",
                                     "1",
-                    vec!["1",
-                    "<= metadata-eval",
-                    "(<= (+ 1 0))",
-                    "<= cancel-sub",
-                    "(+ 1 (<= (- a (=> a))))",
-                    "mul-one =>",
-                    "(+ 1 (- a (* a 1)))",
-                    "<= comm-mul",
-                    "(+ 1 (- a (<= (* 1 a))))",
-                    "<= metadata-eval",
-                    "(+ 1 (- a (* (<= (- 2 1)) a)))"]);
+                    vec!["(+ 1 (- a (* (- 2 1) (=> a))))", "add-zero =>", "(+ 1 (- a (=> (* (- 2 1) (+ a 0)))))", "distribute =>", "(+ 1 (- a (+ (* (- 2 1) a) (* (- 2 1) 0))))", "<= comm-mul", "(+ 1 (- a (+ (* (- 2 1) a) (<= (* 0 (=> (- 2 1)))))))", "metadata-eval =>", "(+ 1 (- a (+ (* (- 2 1) a) (=> (* 0 1)))))", "metadata-eval =>", "(+ 1 (- a (+ (* (- 2 1) a) 0)))", "<= add-zero", "(+ 1 (- a (<= (=> (* (- 2 1) a)))))", "comm-mul =>", "(+ 1 (- a (* a (=> (- 2 1)))))", "metadata-eval =>", "(+ 1 (- a (* a 1)))", "<= mul-one", "(+ 1 (=> (- a (<= a))))", "cancel-sub =>", "(=> (+ 1 0))", "metadata-eval =>", "1"]
+    );
 
     }
 }
@@ -435,21 +427,30 @@ egg::test_fn! {
         .with_scheduler(SimpleScheduler),
     "(+ 1 (- a (* (- 2 1) a)))" => "1"
     @check |mut r: Runner<Math, ConstantFold>| {
-        r.egraph.dot().to_png("target/newegraph.png").unwrap();
         println!("running proof");
         check_proof(&mut r, rules(), "1",
                         "(+ 1 (- a (* (- 2 1) a)))",
-                    vec!["1",
-                    "<= metadata-eval",
-                    "(<= (+ 1 0))",
-                    "<= cancel-sub",
-                    "(+ 1 (<= (- a (=> a))))",
-                    "mul-one =>",
-                    "(+ 1 (- a (* a 1)))",
-                    "<= comm-mul",
-                    "(+ 1 (- a (<= (* 1 a))))",
-                    "<= metadata-eval",
-                    "(+ 1 (- a (* (<= (- 2 1)) a)))"]);
+                    vec!["1", "<= metadata-eval", "(<= (+ 1 0))", "<= cancel-sub", "(+ 1 (<= (- a (=> a))))", "add-zero =>", "(+ 1 (- a (+ (=> a) 0)))", "add-zero =>", "(+ 1 (- a (+ (+ a 0) 0)))", "<= add-zero", "(+ 1 (- a (+ (<= (=> a)) 0)))", "mul-one =>", "(+ 1 (- a (+ (* (<= a) 1) 0)))", "<= comm-mul", "(+ 1 (- a (+ (<= (* 1 (<= a))) 0)))", "<= metadata-eval", "(+ 1 (- a (+ (<= (* 1 (<= a))) (<= (=> (* 0 1))))))", "comm-mul =>", "(+ 1 (- a (+ (<= (* 1 (<= a))) (* 1 0))))", "<= distribute", "(+ 1 (- a (<= (* 1 (+ (<= a) 0)))))", "<= metadata-eval", "(+ 1 (- a (* (<= (- 2 1)) (+ (<= a) 0))))", "<= add-zero", "(+ 1 (- a (* (<= (- 2 1)) (<= a))))"]);
+    }
+}
 
+
+egg::test_fn! {
+    math_test_prove_integ_x, rules(),
+    runner = Runner::default()
+                     .with_iter_limit(10)
+                     .with_scheduler(SimpleScheduler),
+    "(i (pow x 1) x)" => "(/ (pow x 2) 2)"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        check_proof(&mut r, rules(), "(i (pow x 1) x)", "(/ (pow x 2) 2)",
+                    vec!["(=> (i (pow x 1) x))", "i-power-const =>", "(/ (pow x (=> (+ 1 1))) (+ 1 1))", "metadata-eval =>", "(/ (pow x 2) (=> (+ 1 1)))", "metadata-eval =>", "(/ (pow x 2) 2)"]);
+    }
+}
+
+egg::test_fn! {
+    math_test_prove_integ_part2, rules(),
+    "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        check_proof(&mut r, rules(), "(i (* (cos x) x) x)", "(+ (* x (sin x)) (cos x))", vec![]);
     }
 }
