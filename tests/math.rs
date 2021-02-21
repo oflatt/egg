@@ -457,10 +457,19 @@ egg::test_fn! {
     }
 }
 
+["(i (=> (* (cos x) x)) x)",
+"comm-mul =>",
+"(=> (i (* x (cos x)) x))",
+"i-parts =>",
+"(=> (- (* x (i (cos x) x)) (i (* (d x x) (i (cos x) x)) x)))", "sub-canon =>", "(+ (* x (=> (i (cos x) x))) (* -1 (i (* (d x x) (i (cos x) x)) x)))", "i-cos =>", "(+ (* x (sin x)) (=> (* -1 (i (* (d x x) (i (cos x) x)) x))))", "add-zero =>", "(+ (* x (sin x)) (+ (* -1 (i (* (d x x) (i (cos x) x)) x)) 0))", "<= add-zero", "(+ (* x (sin x)) (<= (=> (* -1 (i (* (d x x) (i (cos x) x)) x)))))", "add-zero =>", "(+ (* x (sin x)) (+ (<= (* -1 (i (* (d x x) (i (cos x) x)) x))) 0))", "<= add-zero", "(+ (* x (sin x)) (<= (=> (* -1 (i (* (d x x) (i (cos x) x)) x)))))", "add-zero =>", "(+ (* x (sin x)) (+ (<= (* -1 (i (=> (* (d x x) (i (cos x) x))) x))) 0))", "add-zero =>", "(+ (* x (sin x)) (+ (* -1 (i (+ (* (d x x) (i (cos x) x)) 0) x)) 0))", "<= add-zero", "(+ (* x (sin x)) (+ (* -1 (i (<= (=> (* (d x x) (i (cos x) x)))) x)) 0))", "comm-mul =>", "(+ (* x (sin x)) (+ (* -1 (i (* (i (cos x) x) (=> (d x x))) x)) 0))", "d-variable =>", "(+ (* x (sin x)) (+ (* -1 (i (* (i (cos x) x) 1) x)) 0))", "<= mul-one", "(+ (* x (sin x)) (+ (* -1 (i (<= (=> (i (cos x) x))) x)) 0))", "i-cos =>", "(+ (* x (sin x)) (+ (* -1 (=> (i (sin x) x))) 0))", "i-sin =>", "(+ (* x (sin x)) (+ (=> (* -1 (* -1 (cos x)))) 0))", "assoc-mul =>", "(+ (* x (sin x)) (+ (* (* -1 -1) (cos x)) 0))", "<= d-sin", "(+ (* x (sin x)) (+ (* (* -1 -1) (<= (d x (sin x)))) 0))", "<= zero-mul", "(+ (* x (sin x)) (+ (* (* -1 -1) (<= (d x (sin x)))) (<= (* (sin x) 0))))", "<= d-constant", "(+ (* x (sin x)) (+ (* (* -1 -1) (<= (d x (sin x)))) (* (sin x) (<= (d x (* -1 -1))))))", "<= d-mul", "(+ (* x (sin x)) (<= (d x (=> (* (* -1 -1) (sin x))))))", "add-zero =>", "(+ (* x (sin x)) (d x (+ (* (* -1 -1) (sin x)) 0)))", "<= add-zero", "(+ (* x (sin x)) (d x (<= (=> (* (* -1 -1) (sin x))))))", "comm-mul =>", "(+ (* x (sin x)) (d x (* (sin x) (=> (* -1 -1)))))", "metadata-eval =>", "(+ (* x (sin x)) (d x (* (sin x) 1)))", "<= mul-one", "(+ (* x (sin x)) (=> (d x (<= (sin x)))))", "d-sin =>", "(+ (* x (sin x)) (cos x))"]
+
 egg::test_fn! {
     math_test_prove_integ_part2, rules(),
+    runner = Runner::default()
+             .with_iter_limit(5),
     "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
     @check |mut r: Runner<Math, ConstantFold>| {
+        //r.egraph.dot().to_png("target/newegraph.png").unwrap();
         check_proof(&mut r, rules(), "(i (* (cos x) x) x)", "(+ (* x (sin x)) (cos x))", Some(vec![]));
     }
 }
