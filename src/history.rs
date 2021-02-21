@@ -403,18 +403,21 @@ impl<L: Language> History<L> {
             // push since 0 is a special value and represents no variable
             var_memo.push(Rc::new(NodeExpr::new(None, vec![])));
             let seen_memo: SeenMemo<L> = Default::default();
+            let INITIAL_FUEL = 20;
             return self.recursive_proof(
                 egraph,
                 rules,
                 lg,
                 rg,
                 &mut var_memo,
-                seen_memo
+                seen_memo,
+                INITIAL_FUEL
             );
         }
     }
 
     // find a sequence of rewrites between two enodes
+    // fuel determines the maximum number of backtracks before giving up
     fn find_proof_path<
         N: Analysis<L>,
         F: FnMut(Vec<&RewriteConnection<L>>) -> Option<Vec<Rc<NodeExpr<L>>>>,
@@ -424,6 +427,7 @@ impl<L: Language> History<L> {
         left: &L,
         right: &L,
         yield_fn: &mut F,
+        fuel: usize
     ) -> Option<Vec<Rc<NodeExpr<L>>>> {
         if (left == right) {
             return yield_fn(vec![]);
@@ -434,6 +438,7 @@ impl<L: Language> History<L> {
             subst: Default::default(),
             is_direction_forward: true,
         };
+        let mut backtrack_count = 0;
         let mut todo: VecDeque<PathRecord<&L, &RewriteConnection<L>>> = VecDeque::new();
         let first_list = List::<&L>::new().push_front(left);
         let first_map = HashTrieMap::<&L, &RewriteConnection<L>>::new().insert(left, &dummy);
@@ -468,6 +473,12 @@ impl<L: Language> History<L> {
                             return Some(answer);
                         } else { // otherwise we backtrack and find more paths
                             println!("###########backtracking!");
+                            backtrack_count += 1;
+                            // Deals with cycles in paths, but is not sound!!! TODO
+                            if backtrack_count >= fuel {
+                                println!("##################Backtrack limit!");
+                                return None;
+                            }
                         }
                     } else {
                         todo.push_back((new_list, new_map));
@@ -510,9 +521,18 @@ impl<L: Language> History<L> {
         right_input: Rc<NodeExpr<L>>,
         var_memo: &mut Vec<Rc<NodeExpr<L>>>,
         seen_memo: SeenMemo<L>,
+        fuel: usize
     ) -> Option<Vec<Rc<NodeExpr<L>>>> {
         let mut left = History::<L>::get_from_var_memo(&left_input, var_memo);
         let mut right = History::<L>::get_from_var_memo(&right_input, var_memo);
+
+        let seen_entry = (left.clone().alpha_normalize(), right.clone().alpha_normalize());
+        if seen_memo.contains(&seen_entry) {
+            return None;
+        }
+
+        let new_seen_memo = seen_memo.insert(seen_entry.clone());
+
         // union them when they are both variables
         if (left.node == None && right.node == None) {
             History::<L>::var_memo_union(&left, &right, var_memo);
@@ -540,16 +560,12 @@ impl<L: Language> History<L> {
             }
         }
 
-        let seen_entry = (left.clone().alpha_normalize(), right.clone().alpha_normalize());
-        if seen_memo.contains(&seen_entry) {
-            return None;
-        }
-
         assert_eq!(
             egraph.lookup(left.node.as_ref().unwrap().clone()),
             egraph.lookup(right.node.as_ref().unwrap().clone())
         );
-        let new_seen_memo = seen_memo.insert(seen_entry.clone());
+        let MINIMUM_FUEL = 4;
+        let subproof_fuel = std::cmp::max(MINIMUM_FUEL, fuel); // TODO never updates fuel
 
         let handle_proof_path = &mut |path: Vec<&RewriteConnection<L>>| {
             let mut proof: Vec<Rc<NodeExpr<L>>> = vec![];
@@ -599,18 +615,16 @@ impl<L: Language> History<L> {
                     search_pattern,
                     var_memo,
                     new_seen_memo.clone(),
+                    subproof_fuel
                 );
                 if subproof_maybe == None {
                     return None;
                 }
                 let subproof = subproof_maybe.unwrap();
-                if subproof.len() > 1 {
-                    proof.pop();
-                    proof.extend(subproof);
-                }
+                proof.pop();
+                proof.extend(subproof);
 
                 let latest = proof.pop().unwrap();
-                println!("rewriting {}", latest.to_string());
                 let mut next = latest.rewrite::<N>(
                     egraph,
                     sast,
@@ -638,10 +652,6 @@ impl<L: Language> History<L> {
             // we may have removed one layer in the expression, so prove equal again
             if proof[proof.len() - 1].node != right.node {
                 let latest = proof.pop().unwrap();
-                println!(
-                    "proving children equal because we unwrapped {}",
-                    latest.to_string()
-                );
                 let rest_of_proof = self.recursive_proof(
                     egraph,
                     rules,
@@ -649,6 +659,7 @@ impl<L: Language> History<L> {
                     right.clone(),
                     var_memo,
                     new_seen_memo.clone(),
+                    subproof_fuel
                 );
                 if let Some(rest) = rest_of_proof {
                     proof.extend(rest);
@@ -665,6 +676,7 @@ impl<L: Language> History<L> {
                     &mut proof,
                     var_memo,
                     new_seen_memo.clone(),
+                    subproof_fuel
                 )) {
                     Some(proof)
                 } else {
@@ -678,6 +690,7 @@ impl<L: Language> History<L> {
             left.node.as_ref().unwrap(),
             right.node.as_ref().unwrap(),
             handle_proof_path,
+            fuel
         )
     }
 
@@ -689,6 +702,7 @@ impl<L: Language> History<L> {
         proof: &mut Vec<Rc<NodeExpr<L>>>,
         var_memo: &mut Vec<Rc<NodeExpr<L>>>,
         seen_memo: SeenMemo<L>,
+        fuel: usize
     ) -> bool {
         let left = proof[proof.len() - 1].clone();
         if left.children.len() != right.children.len() {
@@ -708,6 +722,7 @@ impl<L: Language> History<L> {
                 rchild,
                 var_memo,
                 seen_memo.clone(),
+                fuel
             );
             if proof_equal_maybe == None {
                 return false;
