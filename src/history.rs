@@ -1,4 +1,4 @@
-use crate::util::HashMap;
+use crate::util::{HashMap, HashSet};
 use crate::{
     Analysis, Applications, EGraph, ENodeOrVar, Id, Language, PatternAst, RecExpr, Rewrite, Subst,
     Var,
@@ -105,6 +105,10 @@ impl<L: Language> NodeExpr<L> {
         if self.var_reference != 0 {
             head.var_reference = *map.get(&head.var_reference).unwrap();
         }
+        head.rule_ref = RuleReference::Index(0);
+        head.is_rewritten_backwards = false;
+        head.is_rewritten_forward = false;
+        head.is_direction_forward = true;
         head.children = head.children.iter()
                                      .map(|child| {
                                         let c = child.alpha_normalize_with(map);
@@ -569,8 +573,10 @@ impl<L: Language> History<L> {
 
         let handle_proof_path = &mut |path: Vec<&RewriteConnection<L>>| {
             let mut proof: Vec<Rc<NodeExpr<L>>> = vec![];
+            let mut seen_in_path: HashSet<Rc<NodeExpr<L>>> = Default::default();
             proof.push(left.clone());
             for connection in path.iter() {
+                let begin_len = proof.len();
                 let mut sast = match &connection.rule_ref {
                     RuleReference::Index(i) => rules[*i]
                         .searcher
@@ -647,6 +653,14 @@ impl<L: Language> History<L> {
                 }
                 proof.push(Rc::new(newlink));
                 proof.push(Rc::new(next));
+
+                for i in begin_len..proof.len() {
+                    // If we performed a sequence of rewrites that did nothing, return early
+                    // We found a trivial sub-path, and don't want this particular proof
+                    if !seen_in_path.insert(proof[i].clone().alpha_normalize()) {
+                        return None;
+                    }
+                }
             }
 
             // we may have removed one layer in the expression, so prove equal again

@@ -351,6 +351,24 @@ fn check_proof(
     
 }
 
+fn check_proof_exists(
+    r: &mut Runner<Math, ConstantFold>,
+    rules: Vec<Rewrite>,
+    left: &str,
+    right: &str,
+) {
+    let rule_slice = &rules.iter().collect::<Vec<&Rewrite>>()[..];
+    let proof = r
+        .produce_proof(rule_slice, &left.parse().unwrap(), &right.parse().unwrap());
+    match proof {
+        Some(p) => {
+            assert_ne!(p.len(), 0);
+        }
+        None => panic!("Expected proof, got None")
+    }
+    
+}
+
 egg::test_fn! {
     math_test_prove, simple_rules(),
     runner = Runner::default()
@@ -412,7 +430,6 @@ egg::test_fn! {
     }
 }
 
-
 egg::test_fn! {
     math_test_prove_simplify_const, rules(),
     runner = Runner::default()
@@ -424,8 +441,16 @@ egg::test_fn! {
         println!("running proof");
         check_proof(&mut r, rules(), "(+ 1 (- a (* (- 2 1) a)))",
                                     "1",
-                    Some(vec!["(+ 1 (- a (* (- 2 1) (=> a))))", "add-zero =>", "(+ 1 (- a (=> (* (- 2 1) (+ a 0)))))", "distribute =>", "(+ 1 (- a (+ (* (- 2 1) a) (* (- 2 1) 0))))", "<= comm-mul", "(+ 1 (- a (+ (* (- 2 1) a) (<= (* 0 (=> (- 2 1)))))))", "metadata-eval =>", "(+ 1 (- a (+ (* (- 2 1) a) (=> (* 0 1)))))", "metadata-eval =>", "(+ 1 (- a (+ (* (- 2 1) a) 0)))", "<= add-zero", "(+ 1 (- a (<= (=> (* (- 2 1) a)))))", "comm-mul =>", "(+ 1 (- a (* a (=> (- 2 1)))))", "metadata-eval =>", "(+ 1 (- a (* a 1)))", "<= mul-one", "(+ 1 (=> (- a (<= a))))", "cancel-sub =>", "(=> (+ 1 0))", "metadata-eval =>", "1"])
-    );
+                    Some(vec!["(+ 1 (- a (=> (* (- 2 1) a))))",
+                    "comm-mul =>",
+                    "(+ 1 (- a (* a (=> (- 2 1)))))",
+                    "metadata-eval =>",
+                    "(+ 1 (- a (* a 1)))",
+                    "<= mul-one",
+                    "(+ 1 (=> (- a (<= a))))",
+                    "cancel-sub =>",
+                    "(=> (+ 1 0))",
+                    "metadata-eval =>", "1"]));
 
     }
 }
@@ -457,19 +482,22 @@ egg::test_fn! {
     }
 }
 
-["(i (=> (* (cos x) x)) x)",
-"comm-mul =>",
-"(=> (i (* x (cos x)) x))",
-"i-parts =>",
-"(=> (- (* x (i (cos x) x)) (i (* (d x x) (i (cos x) x)) x)))", "sub-canon =>", "(+ (* x (=> (i (cos x) x))) (* -1 (i (* (d x x) (i (cos x) x)) x)))", "i-cos =>", "(+ (* x (sin x)) (=> (* -1 (i (* (d x x) (i (cos x) x)) x))))", "add-zero =>", "(+ (* x (sin x)) (+ (* -1 (i (* (d x x) (i (cos x) x)) x)) 0))", "<= add-zero", "(+ (* x (sin x)) (<= (=> (* -1 (i (* (d x x) (i (cos x) x)) x)))))", "add-zero =>", "(+ (* x (sin x)) (+ (<= (* -1 (i (* (d x x) (i (cos x) x)) x))) 0))", "<= add-zero", "(+ (* x (sin x)) (<= (=> (* -1 (i (* (d x x) (i (cos x) x)) x)))))", "add-zero =>", "(+ (* x (sin x)) (+ (<= (* -1 (i (=> (* (d x x) (i (cos x) x))) x))) 0))", "add-zero =>", "(+ (* x (sin x)) (+ (* -1 (i (+ (* (d x x) (i (cos x) x)) 0) x)) 0))", "<= add-zero", "(+ (* x (sin x)) (+ (* -1 (i (<= (=> (* (d x x) (i (cos x) x)))) x)) 0))", "comm-mul =>", "(+ (* x (sin x)) (+ (* -1 (i (* (i (cos x) x) (=> (d x x))) x)) 0))", "d-variable =>", "(+ (* x (sin x)) (+ (* -1 (i (* (i (cos x) x) 1) x)) 0))", "<= mul-one", "(+ (* x (sin x)) (+ (* -1 (i (<= (=> (i (cos x) x))) x)) 0))", "i-cos =>", "(+ (* x (sin x)) (+ (* -1 (=> (i (sin x) x))) 0))", "i-sin =>", "(+ (* x (sin x)) (+ (=> (* -1 (* -1 (cos x)))) 0))", "assoc-mul =>", "(+ (* x (sin x)) (+ (* (* -1 -1) (cos x)) 0))", "<= d-sin", "(+ (* x (sin x)) (+ (* (* -1 -1) (<= (d x (sin x)))) 0))", "<= zero-mul", "(+ (* x (sin x)) (+ (* (* -1 -1) (<= (d x (sin x)))) (<= (* (sin x) 0))))", "<= d-constant", "(+ (* x (sin x)) (+ (* (* -1 -1) (<= (d x (sin x)))) (* (sin x) (<= (d x (* -1 -1))))))", "<= d-mul", "(+ (* x (sin x)) (<= (d x (=> (* (* -1 -1) (sin x))))))", "add-zero =>", "(+ (* x (sin x)) (d x (+ (* (* -1 -1) (sin x)) 0)))", "<= add-zero", "(+ (* x (sin x)) (d x (<= (=> (* (* -1 -1) (sin x))))))", "comm-mul =>", "(+ (* x (sin x)) (d x (* (sin x) (=> (* -1 -1)))))", "metadata-eval =>", "(+ (* x (sin x)) (d x (* (sin x) 1)))", "<= mul-one", "(+ (* x (sin x)) (=> (d x (<= (sin x)))))", "d-sin =>", "(+ (* x (sin x)) (cos x))"]
-
 egg::test_fn! {
     math_test_prove_integ_part2, rules(),
     runner = Runner::default()
              .with_iter_limit(5),
     "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
     @check |mut r: Runner<Math, ConstantFold>| {
-        //r.egraph.dot().to_png("target/newegraph.png").unwrap();
-        check_proof(&mut r, rules(), "(i (* (cos x) x) x)", "(+ (* x (sin x)) (cos x))", Some(vec![]));
+        check_proof_exists(&mut r, rules(), "(i (* (cos x) x) x)", "(+ (* x (sin x)) (cos x))");
+    }
+}
+
+egg::test_fn! {
+    math_test_prove_integ_part2_harder, rules(),
+    runner = Runner::default()
+             .with_iter_limit(7),
+    "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        check_proof_exists(&mut r, rules(), "(i (* (cos x) x) x)", "(+ (* x (sin x)) (cos x))");
     }
 }
