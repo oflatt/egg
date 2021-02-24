@@ -13,6 +13,7 @@ pub type Proof<L> = Vec<Rc<NodeExpr<L>>>;
 // so that creating a new path with 1 added is O(log(n))
 type SeenMemo<L> = HashTrieSet<(Rc<NodeExpr<L>>, Rc<NodeExpr<L>>)>;
 type VarMemo<L> = Vector<Rc<NodeExpr<L>>>;
+type ExprMemo<L> = HashTrieSet<Rc<NodeExpr<L>>>;
 
 struct PathNode<'a, L: Language> {
     pub node: &'a L,
@@ -463,10 +464,6 @@ impl<L: Language> History<L> {
         let (right, new_memo_2) = History::<L>::get_from_var_memo(&right_input, current_var_memo);
         current_var_memo = new_memo_2;
 
-        if (left == right) {
-            return Some((vec![left.clone()], current_var_memo));
-        }
-
         let seen_entry = (
             left.clone().alpha_normalize(),
             right.clone().alpha_normalize(),
@@ -515,8 +512,9 @@ impl<L: Language> History<L> {
             is_direction_forward: true,
         };
         let mut todo: VecDeque<List<PathNode<L>>> = VecDeque::new();
-        let mut cache: HashMap<usize, Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)>> = Default::default();
-        cache.insert(0, Some((vec![left.clone()], current_var_memo.clone())));
+        let mut cache: HashMap<usize, Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>, ExprMemo<L>)>> = Default::default();
+        let initial_expr_memo = ExprMemo::<L>::new().insert(left.alpha_normalize());
+        cache.insert(0, Some((vec![left.clone()], current_var_memo.clone(), initial_expr_memo)));
         let cache_counter = 1;
         let first_list = List::<PathNode<L>>::new().push_front(PathNode {
             node: left.node.as_ref().unwrap(),
@@ -524,43 +522,48 @@ impl<L: Language> History<L> {
             cache_id: 0,
             contains: HashTrieSet::<&L>::new(),
         });
-        todo.push_back(first_list);
+        todo.push_back(first_list.clone());
 
         let mut all_paths: Vec<List<PathNode<L>>> = Default::default();
 
         let mut steps = 0;
-        while true {
-            if steps >= fuel {
-                break;
-            }
-            steps += 1;
-            if todo.len() == 0 {
-                break;
-            }
-            let current_list = todo.pop_front().unwrap();
-
-            if let Some(children) = self.graph.get(current_list.first().unwrap().node) {
+        if left.node != right.node {
+            while true {
+                if steps >= fuel {
+                    break;
+                }
+                steps += 1;
+                if todo.len() == 0 {
+                    break;
+                }
+                let current_list = todo.pop_front().unwrap();
                 let current_node = current_list.first().unwrap();
-                let mut children_iterator = children.iter();
-                for child in children_iterator {
-                    if current_node.contains.contains(&child.node) {
-                        continue;
-                    }
 
-                    let new_node = PathNode {
-                        node: &child.node,
-                        connection: child,
-                        cache_id: cache_counter,
-                        contains: current_node.contains.insert(&child.node),
-                    };
-                    let new_list = current_list.push_front(new_node);
-                    if &child.node == right.node.as_ref().unwrap() {
-                        all_paths.push(new_list);
-                    } else {
-                        todo.push_back(new_list);
+                if let Some(children) = self.graph.get(current_list.first().unwrap().node) {
+                    let mut children_iterator = children.iter();
+                    for child in children_iterator {
+                        if current_node.contains.contains(&child.node) {
+                            continue;
+                        }
+
+                        let new_node = PathNode {
+                            node: &child.node,
+                            connection: child,
+                            cache_id: cache_counter,
+                            contains: current_node.contains.insert(&child.node),
+                        };
+                        let new_list = current_list.push_front(new_node);
+                        if &child.node == right.node.as_ref().unwrap() {
+                            all_paths.push(new_list);
+                        } else {
+                            todo.push_back(new_list);
+                        }
                     }
                 }
             }
+        } else {
+            // trivial case, nodes already equal
+            all_paths.push(first_list);
         }
 
         if all_paths.len() == 0 {
@@ -576,7 +579,7 @@ impl<L: Language> History<L> {
                 let rest_of_list = list_nodes.drop_first().unwrap();
                 let next = rest_of_list.first().unwrap();
                 if !cache.contains_key(&next.cache_id) {
-                    if let Some((partial_proof, var_memo)) = cache.get(&node.cache_id).unwrap() {
+                    if let Some((partial_proof, var_memo, expr_memo)) = cache.get(&node.cache_id).unwrap() {
                         let left_expr = partial_proof[partial_proof.len() - 1].clone();
                         let step = self.prove_one_step(
                             egraph,
@@ -587,13 +590,23 @@ impl<L: Language> History<L> {
                             new_seen_memo.clone(),
                             new_fuel,
                         );
-                        if step == None {
+                        let mut new_expr_memo = expr_memo.clone();
+                        if let Some((new_subproof, new_var_memo)) = step {
+                            for i in 1..new_subproof.len() {
+                                let normalized = new_subproof[i].alpha_normalize();
+                                if new_expr_memo.contains(&normalized) {
+                                    cache.insert(next.cache_id, None);
+                                } else {
+                                    new_expr_memo = new_expr_memo.insert(normalized);
+                                }
+                            }
+                            cache.insert(
+                                next.cache_id,
+                                Some((new_subproof, new_var_memo, new_expr_memo))
+                            );
+                        } else {
                             println!("Step failed");   
                         }
-                        cache.insert(
-                            next.cache_id,
-                            step,
-                        );
                     } else {
                         if !cache.contains_key(&node.cache_id) {
                             panic!("Should have answers up to {}", node.cache_id);
@@ -606,7 +619,7 @@ impl<L: Language> History<L> {
             }
             // now list_nodes has only the last element
             // if it created a proof to that point sucessfully, try to finish it
-            if let Some((partial_proof, var_memo)) = cache.get(&list_nodes.first().unwrap().cache_id).unwrap()
+            if let Some((partial_proof, var_memo, _)) = cache.get(&list_nodes.first().unwrap().cache_id).unwrap()
             {
                 // we may have removed one layer in the expression, so prove equal again
                 let mut last_fragment = vec![];
