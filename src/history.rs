@@ -566,6 +566,7 @@ impl<L: Language> History<L> {
         if all_paths.len() == 0 {
             return None;
         }
+        println!("Num paths: {}", all_paths.len());
         let new_fuel = fuel / all_paths.len();
         for path in all_paths {
             let reversed = path.reverse();
@@ -577,17 +578,21 @@ impl<L: Language> History<L> {
                 if !cache.contains_key(&next.cache_id) {
                     if let Some((partial_proof, var_memo)) = cache.get(&node.cache_id).unwrap() {
                         let left_expr = partial_proof[partial_proof.len() - 1].clone();
+                        let step = self.prove_one_step(
+                            egraph,
+                            rules,
+                            left.clone(),
+                            next.connection,
+                            var_memo.clone(),
+                            new_seen_memo.clone(),
+                            new_fuel,
+                        );
+                        if step == None {
+                            println!("Step failed");   
+                        }
                         cache.insert(
                             next.cache_id,
-                            self.prove_one_step(
-                                egraph,
-                                rules,
-                                left.clone(),
-                                next.connection,
-                                var_memo.clone(),
-                                new_seen_memo.clone(),
-                                new_fuel,
-                            ),
+                            step,
                         );
                     } else {
                         if !cache.contains_key(&node.cache_id) {
@@ -607,6 +612,7 @@ impl<L: Language> History<L> {
                 let mut last_fragment = vec![];
                 let mut final_var_memo = Default::default();
                 let latest = partial_proof[partial_proof.len() - 1].clone();
+                println!("Found last element {}", latest.to_string());
                 if partial_proof[partial_proof.len() - 1].node != right.node {
                     let rest_of_proof = self.find_proof_paths(
                         egraph,
@@ -716,6 +722,7 @@ impl<L: Language> History<L> {
                 .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
             RuleReference::Pattern((_left, right, _reaon)) => right,
         };
+        println!("Prove one step: {} matching {} rewrite to {}", left.to_string(), sast.to_string(), rast.to_string());
 
         if !connection.is_direction_forward {
             std::mem::swap(&mut sast, &mut rast);

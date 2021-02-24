@@ -370,7 +370,7 @@ fn check_proof_exists(
 egg::test_fn! {
     math_test_prove, simple_rules(),
     runner = Runner::default()
-        .with_iter_limit(7)
+        .with_iter_limit(1)
         .with_scheduler(SimpleScheduler),
     "(+ a b)"
     =>
