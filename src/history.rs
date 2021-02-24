@@ -14,11 +14,11 @@ pub type Proof<L> = Vec<Rc<NodeExpr<L>>>;
 type SeenMemo<L> = HashTrieSet<(Rc<NodeExpr<L>>, Rc<NodeExpr<L>>)>;
 type VarMemo<L> = Vector<Rc<NodeExpr<L>>>;
 
-struct PathNode<L> {
-    pub node: &L,
-    pub connection: &RewriteConnection<L>,
+struct PathNode<'a, L: Language> {
+    pub node: &'a L,
+    pub connection: &'a RewriteConnection<L>,
     pub cache_id: usize,
-    pub contains: HashTrieSet<&L>
+    pub contains: HashTrieSet<&'a L>,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -58,7 +58,7 @@ fn enode_to_string<L: Language>(node_ref: &L) -> String {
 fn unwrap_or_clone<L: Language>(node: Rc<NodeExpr<L>>) -> NodeExpr<L> {
     match Rc::try_unwrap(node) {
         Ok(n) => n,
-        Err(original) => (*original).clone()
+        Err(original) => (*original).clone(),
     }
 }
 
@@ -92,7 +92,9 @@ impl<L: Language> NodeExpr<L> {
         if self.var_reference != 0 {
             acc.push(self.var_reference);
         }
-        self.children.iter().for_each(|child| child.get_variable_refs(acc));
+        self.children
+            .iter()
+            .for_each(|child| child.get_variable_refs(acc));
     }
 
     // TODO this function isn't sound, need a hash function and compare function instead
@@ -117,12 +119,14 @@ impl<L: Language> NodeExpr<L> {
         head.is_rewritten_backwards = false;
         head.is_rewritten_forward = false;
         head.is_direction_forward = true;
-        head.children = head.children.iter()
-                                     .map(|child| {
-                                        let c = child.alpha_normalize_with(map);
-                                        Rc::new(c)
-                                     })
-                                     .collect();
+        head.children = head
+            .children
+            .iter()
+            .map(|child| {
+                let c = child.alpha_normalize_with(map);
+                Rc::new(c)
+            })
+            .collect();
         head
     }
 
@@ -202,11 +206,11 @@ impl<L: Language> NodeExpr<L> {
         ast: &PatternAst<L>,
         subst: &Subst,
         substmap: Option<&HashMap<Var, Rc<NodeExpr<L>>>>, // optionally used to replace variables with nodeexpr
-        var_memo: Option<VarMemo<L>>, // add this for variable bindings
+        var_memo: Option<VarMemo<L>>,                     // add this for variable bindings
     ) -> (Self, VarMemo<L>) {
         let mut dummy = Default::default();
         let use_memo = var_memo != None;
-        let mut var_memo_unwrapped = var_memo.unwrap_or(&mut dummy);
+        let mut var_memo_unwrapped = var_memo.unwrap_or(dummy);
         let mut symbol_map: HashMap<&Var, usize> = Default::default();
         let nodes = ast.as_ref();
         let mut nodeexprs: Vec<Rc<NodeExpr<L>>> = Vec::with_capacity(nodes.len());
@@ -230,7 +234,7 @@ impl<L: Language> NodeExpr<L> {
                                 symbol_map.insert(v, var_num);
                                 let mut new_placeholder = NodeExpr::new(None, vec![]);
                                 new_placeholder.var_reference = var_num;
-                                var_memo_unwrapped = var_memo_unwrapped.set(var_num, Rc::new(new_placeholder))).unwrap();
+                                var_memo_unwrapped = var_memo_unwrapped.push_back(Rc::new(new_placeholder));
                             }
 
                             let mut newexpr = NodeExpr::new(None, vec![]);
@@ -256,7 +260,10 @@ impl<L: Language> NodeExpr<L> {
         }
 
         // last nodeexpr, the top node
-        (unwrap_or_clone(nodeexprs.pop().unwrap()), var_memo_unwrapped)
+        (
+            unwrap_or_clone(nodeexprs.pop().unwrap()),
+            var_memo_unwrapped,
+        )
     }
 
     fn make_subst(
@@ -293,13 +300,7 @@ impl<L: Language> NodeExpr<L> {
     ) -> (NodeExpr<L>, VarMemo<L>) {
         let mut graphsubst = Default::default();
         self.make_subst(left, Id::from(left.as_ref().len() - 1), &mut graphsubst);
-        NodeExpr::from_pattern_ast::<N>(
-            egraph,
-            right,
-            subst,
-            Some(&graphsubst),
-            Some(var_memo),
-        )
+        NodeExpr::from_pattern_ast::<N>(egraph, right, subst, Some(&graphsubst), Some(var_memo))
     }
 }
 
@@ -412,24 +413,23 @@ impl<L: Language> History<L> {
             let rg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, right));
             let INITIAL_FUEL = 10000;
             let mut fuel = INITIAL_FUEL;
-            while(fuel < 1_000_000) {
-                let mut var_memo: Vec<Rc<NodeExpr<L>>> = Default::default();
+            while (fuel < 1_000_000) {
                 // push since 0 is a special value and represents no variable
-                var_memo.push(Rc::new(NodeExpr::new(None, vec![])));
+                let var_memo = Vector::<Rc<NodeExpr<L>>>::new().push_back(Rc::new(NodeExpr::new(None, vec![])));
                 let seen_memo: SeenMemo<L> = Default::default();
                 let r = self.find_proof_paths(
                     egraph,
                     rules,
                     lg.clone(),
                     rg.clone(),
-                    &mut var_memo,
+                    var_memo,
                     seen_memo,
-                    fuel
+                    fuel,
                 );
                 fuel *= 2;
                 if r != None {
                     println!("FOUND at fuel: {}", fuel);
-                    return r;
+                    return Some(r.unwrap().0);
                 }
             }
             return None;
@@ -440,8 +440,7 @@ impl<L: Language> History<L> {
     // fuel determines the maximum number of backtracks before giving up
     // TODO detect duplicate expressions within a path
     fn find_proof_paths<
-        N: Analysis<L>,
-        F: FnMut(Vec<&RewriteConnection<L>>, usize) -> Option<Vec<Rc<NodeExpr<L>>>>,
+        N: Analysis<L>
     >(
         &self,
         egraph: &mut EGraph<L, N>,
@@ -450,24 +449,28 @@ impl<L: Language> History<L> {
         right_input: Rc<NodeExpr<L>>,
         var_memo: VarMemo<L>,
         seen_memo: SeenMemo<L>,
-        fuel: usize
-    ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>> {
+        fuel_in: usize,
+    ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
         if fuel_in <= 1 {
             return None;
         }
         // cost of this function
-        let fuel = fuel_in-1;
-        if (left == right) {
-            return yield_fn(vec![], fuel);
-        }
+        let fuel = fuel_in - 1;
 
         let mut current_var_memo = var_memo;
-        let mut (left, new_memo_1) = History::<L>::get_from_var_memo(&left_input, current_var_memo);
+        let (left, new_memo_1) = History::<L>::get_from_var_memo(&left_input, current_var_memo);
         current_var_memo = new_memo_1;
-        let mut (right, new_memo_2) = History::<L>::get_from_var_memo(&right_input, current_var_memo);
+        let (right, new_memo_2) = History::<L>::get_from_var_memo(&right_input, current_var_memo);
         current_var_memo = new_memo_2;
 
-        let seen_entry = (left.clone().alpha_normalize(), right.clone().alpha_normalize());
+        if (left == right) {
+            return Some((vec![left.clone()], current_var_memo));
+        }
+
+        let seen_entry = (
+            left.clone().alpha_normalize(),
+            right.clone().alpha_normalize(),
+        );
         if seen_memo.contains(&seen_entry) {
             return None;
         }
@@ -483,7 +486,7 @@ impl<L: Language> History<L> {
         if left.node == None {
             if left.var_reference > 0 {
                 if current_var_memo.get(left.var_reference).unwrap().node == None {
-                    let new_var_memo = current_var_memo.insert(left.var_reference, right.clone());
+                    let new_var_memo = current_var_memo.set(left.var_reference, right.clone()).unwrap();
                     return Some((vec![right.clone()], new_var_memo));
                 }
             } else {
@@ -492,7 +495,7 @@ impl<L: Language> History<L> {
         } else if right.node == None {
             if right.var_reference > 0 {
                 if current_var_memo.get(right.var_reference).unwrap().node == None {
-                    let new_var_memo = current_var_memo.insert(right.var_reference, left.clone());
+                    let new_var_memo = current_var_memo.set(right.var_reference, left.clone()).unwrap();
                     return Some((vec![left.clone()], new_var_memo));
                 }
             } else {
@@ -506,22 +509,21 @@ impl<L: Language> History<L> {
         );
 
         let dummy = RewriteConnection {
-            node: left.clone(),
+            node: left.node.as_ref().unwrap().clone(),
             rule_ref: RuleReference::Index(0),
             subst: Default::default(),
             is_direction_forward: true,
         };
         let mut todo: VecDeque<List<PathNode<L>>> = VecDeque::new();
-        let cache: HashMap<usize, Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)>> = Default::default();
-        cache.insert(0, (Some(vec![left.clone()]), current_var_memo.clone()));
+        let mut cache: HashMap<usize, Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)>> = Default::default();
+        cache.insert(0, Some((vec![left.clone()], current_var_memo.clone())));
         let cache_counter = 1;
-        let first_list = List::<PathNode<L>>::new().push_front(
-            PathNode {
-                node: &left.node.unwrap(),
-                connection: &dummy,
-                cache_id: 0,
-                contains: HashTrieSet<&L>::new()
-            });
+        let first_list = List::<PathNode<L>>::new().push_front(PathNode {
+            node: left.node.as_ref().unwrap(),
+            connection: &dummy,
+            cache_id: 0,
+            contains: HashTrieSet::<&L>::new(),
+        });
         todo.push_back(first_list);
 
         let mut all_paths: Vec<List<PathNode<L>>> = Default::default();
@@ -545,15 +547,14 @@ impl<L: Language> History<L> {
                         continue;
                     }
 
-
                     let new_node = PathNode {
                         node: &child.node,
                         connection: child,
                         cache_id: cache_counter,
-                        contains: current_node.contains.insert(&child.node)
-                    }
+                        contains: current_node.contains.insert(&child.node),
+                    };
                     let new_list = current_list.push_front(new_node);
-                    if &child.node == right {
+                    if &child.node == right.node.as_ref().unwrap() {
                         all_paths.push(new_list);
                     } else {
                         todo.push_back(new_list);
@@ -569,39 +570,52 @@ impl<L: Language> History<L> {
         for path in all_paths {
             let reversed = path.reverse();
             let mut list_nodes = reversed.clone();
-            while(list_nodes.len() > 1) {
+            while (list_nodes.len() > 1) {
                 let node = list_nodes.first().unwrap();
-                let next = list_nodes.pop_front().unwrap().first().unwrap();
-                if !cache.has_key(next.id) {
-                    if let Some((partial_proof, var_memo)) = cache.get(node.id) {
-                        let left_expr = partial_proof[partial_proof.len()-1].clone();
-                        cache.insert(next.id, prove_one_step(egraph, rules, left, next.connection, var_memo, new_seen_memo, new_fuel));
+                let rest_of_list = list_nodes.drop_first().unwrap();
+                let next = rest_of_list.first().unwrap();
+                if !cache.contains_key(&next.cache_id) {
+                    if let Some((partial_proof, var_memo)) = cache.get(&node.cache_id).unwrap() {
+                        let left_expr = partial_proof[partial_proof.len() - 1].clone();
+                        cache.insert(
+                            next.cache_id,
+                            self.prove_one_step(
+                                egraph,
+                                rules,
+                                left.clone(),
+                                next.connection,
+                                var_memo.clone(),
+                                new_seen_memo.clone(),
+                                new_fuel,
+                            ),
+                        );
                     } else {
-                        if !cache.has_key(node.id) {
+                        if !cache.contains_key(&node.cache_id) {
                             panic!("Should have answers up to {}", node.cache_id);
                         } else {
-                            cache.insert(next.id, (None, Default::default()));
+                            cache.insert(next.cache_id, None);
                         }
                     }
-                }   
-                list_nodes = list_nodes.pop_front().unwrap();
+                }
+                list_nodes = list_nodes.drop_first().unwrap();
             }
             // now list_nodes has only the last element
             // if it created a proof to that point sucessfully, try to finish it
-            if let Some((partial_proof, var_memo)) = cache.get(list_nodes.first().unwrap().cache_id) {
+            if let Some((partial_proof, var_memo)) = cache.get(&list_nodes.first().unwrap().cache_id).unwrap()
+            {
                 // we may have removed one layer in the expression, so prove equal again
                 let mut last_fragment = vec![];
                 let mut final_var_memo = Default::default();
-                let latest = proof[proof.len()-1].clone();
-                if partial_proof[proof.len() - 1].node != right.node {
+                let latest = partial_proof[partial_proof.len() - 1].clone();
+                if partial_proof[partial_proof.len() - 1].node != right.node {
                     let rest_of_proof = self.find_proof_paths(
                         egraph,
                         rules,
                         latest,
                         right.clone(),
-                        var_memo,
+                        var_memo.clone(),
                         new_seen_memo.clone(),
-                        newfuel
+                        new_fuel,
                     );
                     if let Some((a_last_fragment, a_final_var_memo)) = rest_of_proof {
                         last_fragment = a_last_fragment;
@@ -610,15 +624,15 @@ impl<L: Language> History<L> {
                         continue;
                     }
                 } else {
-                    last_fragment.push_back(latest);
+                    last_fragment.push(latest);
                     let (success, a_final_var_memo) = self.prove_children_equal(
                         egraph,
                         rules,
                         right.clone(),
                         &mut last_fragment,
-                        var_memo,
+                        var_memo.clone(),
                         new_seen_memo.clone(),
-                        newfuel
+                        new_fuel,
                     );
                     if success {
                         final_var_memo = a_final_var_memo;
@@ -627,43 +641,51 @@ impl<L: Language> History<L> {
                     }
                 }
                 // now we assemble the proof and return it
-                let mut entire_proof = vec![first.clone()];
+                let mut entire_proof = vec![left.clone()];
                 let mut iter = reversed;
                 while iter.len() > 0 {
                     entire_proof.pop();
-                    entire_proof.extend(cache.get(iter.first().unwrap().cache_id).unwrap().0);
-                    iter = iter.pop_front().unwrap();
+                    let sub_part = cache.get(&iter.first().unwrap().cache_id).unwrap();
+                    entire_proof.extend(sub_part.as_ref().unwrap().clone().0);
+                    iter = iter.drop_first().unwrap();
                 }
                 entire_proof.pop();
                 entire_proof.extend(last_fragment);
-                return Some(entire_proof, final_var_memo);
+                return Some((entire_proof, final_var_memo));
             }
         }
 
         return None;
     }
 
-    fn get_from_var_memo(node: &Rc<NodeExpr<L>>, var_memo: &mut Vec<Rc<NodeExpr<L>>>) -> Rc<NodeExpr<L>> {
+    fn get_from_var_memo(
+        node: &Rc<NodeExpr<L>>,
+        var_memo_in: VarMemo<L>,
+    ) -> (Rc<NodeExpr<L>>, VarMemo<L>) {
+        let mut var_memo = var_memo_in;
         let mut current = node.clone();
         let mut var_ref = 0;
         while current.var_reference != var_ref && current.node == None {
             var_ref = current.var_reference;
-            current = var_memo[current.var_reference].clone();
+            current = var_memo.get(current.var_reference).unwrap().clone();
         }
-        // path compression
-        /*
+        
         if node.var_reference != 0 {
             if node.var_reference != var_ref {
-                let mut replacement = (*var_memo[node.var_reference]).clone();
+                let mut replacement = (**var_memo.get(node.var_reference).unwrap()).clone();
                 replacement.var_reference = var_ref;
-                var_memo[node.var_reference] = Rc::new(replacement);
+                var_memo = var_memo.set(node.var_reference, Rc::new(replacement)).unwrap();
             }
-        }*/
-        return current;
+        }
+        return (current, var_memo);
     }
 
-    fn var_memo_union(left: &Rc<NodeExpr<L>>, right: &Rc<NodeExpr<L>>, var_memo: &mut Vec<Rc<NodeExpr<L>>>) {
-        var_memo[right.var_reference] = left.clone();
+    fn var_memo_union(
+        left: &Rc<NodeExpr<L>>,
+        right: &Rc<NodeExpr<L>>,
+        var_memo: VarMemo<L>,
+    ) -> VarMemo<L> {
+        var_memo.set(right.var_reference, left.clone()).unwrap()
     }
 
     fn prove_one_step<N: Analysis<L>>(
@@ -674,8 +696,9 @@ impl<L: Language> History<L> {
         connection: &RewriteConnection<L>,
         var_memo: Vector<Rc<NodeExpr<L>>>,
         seen_memo: SeenMemo<L>,
-        fuel: usize
-    ) -> Option<(Vec<Rc<NodeExpr<L>>>, Vector<Rc<NodeExpr<L>>>)> { // returns a new var_memo
+        fuel: usize,
+    ) -> Option<(Vec<Rc<NodeExpr<L>>>, Vector<Rc<NodeExpr<L>>>)> {
+        // returns a new var_memo
         let mut current_var_memo = var_memo;
 
         let mut sast = match &connection.rule_ref {
@@ -700,38 +723,34 @@ impl<L: Language> History<L> {
 
         //println!("rule: {} => {}", sast.to_string(), rast.to_string());
 
-        let (search_pattern, first_var_memo) = Rc::new(NodeExpr::from_pattern_ast::<N>(
+        let (search_pattern, first_var_memo) = NodeExpr::from_pattern_ast::<N>(
             egraph,
             sast,
             &connection.subst,
             None,
             Some(current_var_memo),
-        ));
+        );
         current_var_memo = first_var_memo;
 
-        let (subproof_maybe, second_var_memo) = self.find_proof_paths(
+        let maybe_subproof = self.find_proof_paths(
             egraph,
             rules,
             left.clone(),
-            search_pattern,
+            Rc::new(search_pattern),
             current_var_memo,
             seen_memo.clone(),
-            fuel
+            fuel,
         );
-        current_var_memo = second_var_memo;
-        if subproof_maybe == None {
+        if maybe_subproof == None {
             return None;
         }
-        let mut proof = subproof_maybe.unwrap();
+        let unwrapped_subproof = maybe_subproof.unwrap();
+        let mut proof = unwrapped_subproof.0;
+        current_var_memo = unwrapped_subproof.1;
 
         let latest = proof.pop().unwrap();
-        let mut next = latest.rewrite::<N>(
-            egraph,
-            sast,
-            rast,
-            &connection.subst,
-            current_var_memo,
-        );
+        let (mut next, third_var_memo) = latest.rewrite::<N>(egraph, sast, rast, &connection.subst, current_var_memo);
+        current_var_memo = third_var_memo;
         let mut newlink = unwrap_or_clone(latest);
         newlink.rule_ref = connection.rule_ref.clone();
         newlink.is_direction_forward = connection.is_direction_forward;
@@ -747,9 +766,9 @@ impl<L: Language> History<L> {
         }
         proof.push(Rc::new(newlink));
         proof.push(Rc::new(next));
-        (proof, current_var_memo);
+        Some((proof, current_var_memo))
     }
-    
+
     fn prove_children_equal<N: Analysis<L>>(
         &self,
         egraph: &mut EGraph<L, N>,
@@ -758,7 +777,7 @@ impl<L: Language> History<L> {
         proof: &mut Vec<Rc<NodeExpr<L>>>,
         var_memo: Vector<Rc<NodeExpr<L>>>,
         seen_memo: SeenMemo<L>,
-        fuel: usize
+        fuel: usize,
     ) -> (bool, VarMemo<L>) {
         let left = proof[proof.len() - 1].clone();
         if left.children.len() != right.children.len() {
@@ -779,7 +798,7 @@ impl<L: Language> History<L> {
                 rchild,
                 current_var_memo,
                 seen_memo.clone(),
-                fuel
+                fuel,
             );
             if proof_equal_maybe == None {
                 return (false, Default::default());

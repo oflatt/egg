@@ -332,8 +332,7 @@ fn check_proof(
     expected: Option<Vec<&str>>,
 ) {
     let rule_slice = &rules.iter().collect::<Vec<&Rewrite>>()[..];
-    let proof = r
-        .produce_proof(rule_slice, &left.parse().unwrap(), &right.parse().unwrap());
+    let proof = r.produce_proof(rule_slice, &left.parse().unwrap(), &right.parse().unwrap());
     match proof {
         Some(p) => {
             if let Some(e) = expected {
@@ -341,14 +340,15 @@ fn check_proof(
                     Some(NodeExpr::<Math>::to_strings::<ConstantFold>(rule_slice, &p)),
                     Some(e.iter().map(|s| s.to_string()).collect())
                 )
-            }
-            else {
-                assert_eq!(Some(NodeExpr::<Math>::to_strings::<ConstantFold>(rule_slice, &p)), None)
+            } else {
+                assert_eq!(
+                    Some(NodeExpr::<Math>::to_strings::<ConstantFold>(rule_slice, &p)),
+                    None
+                )
             }
         }
-        None => assert_eq!(None, expected)
+        None => assert_eq!(None, expected),
     }
-    
 }
 
 fn check_proof_exists(
@@ -358,15 +358,13 @@ fn check_proof_exists(
     right: &str,
 ) {
     let rule_slice = &rules.iter().collect::<Vec<&Rewrite>>()[..];
-    let proof = r
-        .produce_proof(rule_slice, &left.parse().unwrap(), &right.parse().unwrap());
+    let proof = r.produce_proof(rule_slice, &left.parse().unwrap(), &right.parse().unwrap());
     match proof {
         Some(p) => {
             assert_ne!(p.len(), 0);
         }
-        None => panic!("Expected proof, got None")
+        None => panic!("Expected proof, got None"),
     }
-    
 }
 
 egg::test_fn! {
@@ -468,7 +466,6 @@ egg::test_fn! {
                     Some(vec!["1", "<= metadata-eval", "(<= (+ 1 0))", "<= cancel-sub", "(+ 1 (<= (- a (=> a))))", "add-zero =>", "(+ 1 (- a (+ (=> a) 0)))", "add-zero =>", "(+ 1 (- a (+ (+ a 0) 0)))", "<= add-zero", "(+ 1 (- a (+ (<= (=> a)) 0)))", "mul-one =>", "(+ 1 (- a (+ (* (<= a) 1) 0)))", "<= comm-mul", "(+ 1 (- a (+ (<= (* 1 (<= a))) 0)))", "<= metadata-eval", "(+ 1 (- a (+ (<= (* 1 (<= a))) (<= (=> (* 0 1))))))", "comm-mul =>", "(+ 1 (- a (+ (<= (* 1 (<= a))) (* 1 0))))", "<= distribute", "(+ 1 (- a (<= (* 1 (+ (<= a) 0)))))", "<= metadata-eval", "(+ 1 (- a (* (<= (- 2 1)) (+ (<= a) 0))))", "<= add-zero", "(+ 1 (- a (* (<= (- 2 1)) (<= a))))"]));
     }
 }
-
 
 egg::test_fn! {
     math_test_prove_integ_x, rules(),
