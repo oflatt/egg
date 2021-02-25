@@ -412,9 +412,9 @@ impl<L: Language> History<L> {
         } else {
             let lg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, left));
             let rg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, right));
-            let INITIAL_FUEL = 10000;
+            let INITIAL_FUEL = 100_000;
             let mut fuel = INITIAL_FUEL;
-            while (fuel < 1_000_000) {
+            while (fuel < 10_000_000) {
                 // push since 0 is a special value and represents no variable
                 let var_memo = Vector::<Rc<NodeExpr<L>>>::new().push_back(Rc::new(NodeExpr::new(None, vec![])));
                 let seen_memo: SeenMemo<L> = Default::default();
@@ -431,6 +431,8 @@ impl<L: Language> History<L> {
                 if r != None {
                     println!("FOUND at fuel: {}", fuel);
                     return Some(r.unwrap().0);
+                } else {
+                    println!("Raising fuel! New fuel: {}", fuel);
                 }
             }
             return None;
@@ -439,7 +441,6 @@ impl<L: Language> History<L> {
 
     // find a sequence of rewrites between two enodes
     // fuel determines the maximum number of backtracks before giving up
-    // TODO detect duplicate expressions within a path
     fn find_proof_paths<
         N: Analysis<L>
     >(
@@ -452,7 +453,9 @@ impl<L: Language> History<L> {
         seen_memo: SeenMemo<L>,
         fuel_in: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
+        println!("Fuel: {}", fuel_in);
         if fuel_in <= 1 {
+            println!("Ran out of fuel");
             return None;
         }
         // cost of this function
@@ -469,6 +472,7 @@ impl<L: Language> History<L> {
             right.clone().alpha_normalize(),
         );
         if seen_memo.contains(&seen_entry) {
+            println!("Detected cycle");
             return None;
         }
         let new_seen_memo = seen_memo.insert(seen_entry.clone());
@@ -504,6 +508,7 @@ impl<L: Language> History<L> {
             egraph.lookup(left.node.as_ref().unwrap().clone()),
             egraph.lookup(right.node.as_ref().unwrap().clone())
         );
+        println!("find_proof_paths: {} and {}", left.to_string(), right.to_string());
 
         let dummy = RewriteConnection {
             node: left.node.as_ref().unwrap().clone(),
@@ -515,7 +520,7 @@ impl<L: Language> History<L> {
         let mut cache: HashMap<usize, Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>, ExprMemo<L>)>> = Default::default();
         let initial_expr_memo = ExprMemo::<L>::new().insert(left.alpha_normalize());
         cache.insert(0, Some((vec![left.clone()], current_var_memo.clone(), initial_expr_memo)));
-        let cache_counter = 1;
+        let mut cache_counter = 1;
         let first_list = List::<PathNode<L>>::new().push_front(PathNode {
             node: left.node.as_ref().unwrap(),
             connection: &dummy,
@@ -532,6 +537,9 @@ impl<L: Language> History<L> {
                 if steps >= fuel {
                     break;
                 }
+                if all_paths.len()*10 >= fuel  {
+                    break;
+                }
                 steps += 1;
                 if todo.len() == 0 {
                     break;
@@ -542,6 +550,7 @@ impl<L: Language> History<L> {
                 if let Some(children) = self.graph.get(current_list.first().unwrap().node) {
                     let mut children_iterator = children.iter();
                     for child in children_iterator {
+                        // looping paths are often useful because nodes which were once distinct are merged
                         if current_node.contains.contains(&child.node) {
                             continue;
                         }
@@ -552,6 +561,7 @@ impl<L: Language> History<L> {
                             cache_id: cache_counter,
                             contains: current_node.contains.insert(&child.node),
                         };
+                        cache_counter += 1;
                         let new_list = current_list.push_front(new_node);
                         if &child.node == right.node.as_ref().unwrap() {
                             all_paths.push(new_list);
@@ -571,7 +581,9 @@ impl<L: Language> History<L> {
         }
         println!("Num paths: {}", all_paths.len());
         let new_fuel = fuel / all_paths.len();
+        let mut counter = 1;
         for path in all_paths {
+            counter += 1;
             let reversed = path.reverse();
             let mut list_nodes = reversed.clone();
             while (list_nodes.len() > 1) {
@@ -592,27 +604,28 @@ impl<L: Language> History<L> {
                         );
                         let mut new_expr_memo = expr_memo.clone();
                         if let Some((new_subproof, new_var_memo)) = step {
+                            let mut done = false;
                             for i in 1..new_subproof.len() {
                                 let normalized = new_subproof[i].alpha_normalize();
                                 if new_expr_memo.contains(&normalized) {
                                     cache.insert(next.cache_id, None);
+                                    done = true;
+                                    break;
                                 } else {
                                     new_expr_memo = new_expr_memo.insert(normalized);
                                 }
                             }
-                            cache.insert(
-                                next.cache_id,
-                                Some((new_subproof, new_var_memo, new_expr_memo))
-                            );
-                        } else {
-                            println!("Step failed");   
-                        }
-                    } else {
-                        if !cache.contains_key(&node.cache_id) {
-                            panic!("Should have answers up to {}", node.cache_id);
+                            if !done {
+                                cache.insert(
+                                    next.cache_id,
+                                    Some((new_subproof, new_var_memo, new_expr_memo))
+                                );    
+                            }
                         } else {
                             cache.insert(next.cache_id, None);
                         }
+                    } else {
+                        cache.insert(next.cache_id, None);
                     }
                 }
                 list_nodes = list_nodes.drop_first().unwrap();
@@ -625,7 +638,7 @@ impl<L: Language> History<L> {
                 let mut last_fragment = vec![];
                 let mut final_var_memo = Default::default();
                 let latest = partial_proof[partial_proof.len() - 1].clone();
-                println!("Found last element {}", latest.to_string());
+                
                 if partial_proof[partial_proof.len() - 1].node != right.node {
                     let rest_of_proof = self.find_proof_paths(
                         egraph,
@@ -640,6 +653,7 @@ impl<L: Language> History<L> {
                         last_fragment = a_last_fragment;
                         final_var_memo = a_final_var_memo;
                     } else {
+                        // continue on another path
                         continue;
                     }
                 } else {
@@ -673,7 +687,6 @@ impl<L: Language> History<L> {
                 return Some((entire_proof, final_var_memo));
             }
         }
-
         return None;
     }
 
@@ -735,7 +748,6 @@ impl<L: Language> History<L> {
                 .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
             RuleReference::Pattern((_left, right, _reaon)) => right,
         };
-        println!("Prove one step: {} matching {} rewrite to {}", left.to_string(), sast.to_string(), rast.to_string());
 
         if !connection.is_direction_forward {
             std::mem::swap(&mut sast, &mut rast);
@@ -751,6 +763,7 @@ impl<L: Language> History<L> {
             Some(current_var_memo),
         );
         current_var_memo = first_var_memo;
+        println!("Prove one step: {} matching {} rewrite to {}", left.to_string(), search_pattern.to_string(), rast.to_string());
 
         let maybe_subproof = self.find_proof_paths(
             egraph,
