@@ -413,8 +413,9 @@ impl<L: Language> History<L> {
             let lg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, left));
             let rg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, right));
             let INITIAL_FUEL = 100_000;
+            let MAX_FUEL = 100_000_000;
             let mut fuel = INITIAL_FUEL;
-            while (fuel < 10_000_000) {
+            while (fuel <= MAX_FUEL) {
                 // push since 0 is a special value and represents no variable
                 let var_memo = Vector::<Rc<NodeExpr<L>>>::new().push_back(Rc::new(NodeExpr::new(None, vec![])));
                 let seen_memo: SeenMemo<L> = Default::default();
@@ -453,9 +454,8 @@ impl<L: Language> History<L> {
         seen_memo: SeenMemo<L>,
         fuel_in: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
-        println!("Fuel: {}", fuel_in);
         if fuel_in <= 1 {
-            println!("Ran out of fuel");
+            println!("Out of fuel");
             return None;
         }
         // cost of this function
@@ -472,7 +472,7 @@ impl<L: Language> History<L> {
             right.clone().alpha_normalize(),
         );
         if seen_memo.contains(&seen_entry) {
-            println!("Detected cycle");
+            println!("Cycle detected");
             return None;
         }
         let new_seen_memo = seen_memo.insert(seen_entry.clone());
@@ -508,7 +508,6 @@ impl<L: Language> History<L> {
             egraph.lookup(left.node.as_ref().unwrap().clone()),
             egraph.lookup(right.node.as_ref().unwrap().clone())
         );
-        println!("find_proof_paths: {} and {}", left.to_string(), right.to_string());
 
         let dummy = RewriteConnection {
             node: left.node.as_ref().unwrap().clone(),
@@ -525,7 +524,7 @@ impl<L: Language> History<L> {
             node: left.node.as_ref().unwrap(),
             connection: &dummy,
             cache_id: 0,
-            contains: HashTrieSet::<&L>::new(),
+            contains: HashTrieSet::<&L>::new().insert(left.node.as_ref().unwrap()),
         });
         todo.push_back(first_list.clone());
 
@@ -537,7 +536,7 @@ impl<L: Language> History<L> {
                 if steps >= fuel {
                     break;
                 }
-                if all_paths.len()*10 >= fuel  {
+                if all_paths.len() > 0 && all_paths.len().pow(4) >= fuel  {
                     break;
                 }
                 steps += 1;
@@ -550,7 +549,6 @@ impl<L: Language> History<L> {
                 if let Some(children) = self.graph.get(current_list.first().unwrap().node) {
                     let mut children_iterator = children.iter();
                     for child in children_iterator {
-                        // looping paths are often useful because nodes which were once distinct are merged
                         if current_node.contains.contains(&child.node) {
                             continue;
                         }
@@ -575,14 +573,16 @@ impl<L: Language> History<L> {
             // trivial case, nodes already equal
             all_paths.push(first_list);
         }
+        println!("Number of paths: {}", all_paths.len());
 
         if all_paths.len() == 0 {
             return None;
         }
-        println!("Num paths: {}", all_paths.len());
-        let new_fuel = fuel / all_paths.len();
+        let fuel_partition = fuel / all_paths.len();
         let mut counter = 1;
         for path in all_paths {
+            println!("Path len: {}", path.len());
+            let step_fuel = fuel_partition / (path.len() + 1);
             counter += 1;
             let reversed = path.reverse();
             let mut list_nodes = reversed.clone();
@@ -596,11 +596,11 @@ impl<L: Language> History<L> {
                         let step = self.prove_one_step(
                             egraph,
                             rules,
-                            left.clone(),
+                            left_expr.clone(),
                             next.connection,
                             var_memo.clone(),
                             new_seen_memo.clone(),
-                            new_fuel,
+                            step_fuel,
                         );
                         let mut new_expr_memo = expr_memo.clone();
                         if let Some((new_subproof, new_var_memo)) = step {
@@ -634,6 +634,7 @@ impl<L: Language> History<L> {
             // if it created a proof to that point sucessfully, try to finish it
             if let Some((partial_proof, var_memo, _)) = cache.get(&list_nodes.first().unwrap().cache_id).unwrap()
             {
+                println!("Found partial proof");
                 // we may have removed one layer in the expression, so prove equal again
                 let mut last_fragment = vec![];
                 let mut final_var_memo = Default::default();
@@ -647,7 +648,7 @@ impl<L: Language> History<L> {
                         right.clone(),
                         var_memo.clone(),
                         new_seen_memo.clone(),
-                        new_fuel,
+                        step_fuel,
                     );
                     if let Some((a_last_fragment, a_final_var_memo)) = rest_of_proof {
                         last_fragment = a_last_fragment;
@@ -665,11 +666,12 @@ impl<L: Language> History<L> {
                         &mut last_fragment,
                         var_memo.clone(),
                         new_seen_memo.clone(),
-                        new_fuel,
+                        step_fuel,
                     );
                     if success {
                         final_var_memo = a_final_var_memo;
                     } else {
+                        println!("Couldn't prove children equal");
                         continue;
                     }
                 }
@@ -775,6 +777,7 @@ impl<L: Language> History<L> {
             fuel,
         );
         if maybe_subproof == None {
+            println!("Couldn't find subproof!");
             return None;
         }
         let unwrapped_subproof = maybe_subproof.unwrap();
