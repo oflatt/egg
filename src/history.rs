@@ -334,20 +334,6 @@ impl<L: Language> History<L> {
         } else {
             self.graph.insert(from.clone(), vec![fromr]);
         }
-
-        let currentto = self.graph.get_mut(&to);
-        let tor = RewriteConnection {
-            node: from,
-            rule_ref: rule,
-            subst: subst,
-            is_direction_forward: false,
-        };
-
-        if let Some(v) = currentto {
-            v.push(tor);
-        } else {
-            self.graph.insert(to, vec![tor]);
-        }
     }
 
     pub(crate) fn add_union_proof<N: Analysis<L>>(
@@ -378,17 +364,107 @@ impl<L: Language> History<L> {
         }
     }
 
-    pub(crate) fn rebuild<N: Analysis<L>>(&mut self, egraph: &EGraph<L, N>) {
+    fn is_arbitrary<N: Analysis<L>>(rules : &[&Rewrite<L, N>], rule_ref : &RuleReference<L>, check_left : bool) -> bool {
+        let mut pattern;
+        match rule_ref {
+            RuleReference::Index(i) => {
+                if check_left {
+                    pattern = rules[*i].searcher.get_ast().unwrap();
+                } else {
+                    pattern = rules[*i].applier.get_ast().unwrap();
+                }
+            },
+            RuleReference::Pattern((s, a, _)) => {
+                if check_left {
+                    pattern = s;
+                } else {
+                    pattern = a;
+                }
+            }
+        }
+        if let ENodeOrVar::Var(_) = pattern.as_ref().last().unwrap() {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    // updates all enodes to be canonical
+    // also adds edges going in other direction
+    pub(crate) fn rebuild<N: Analysis<L>>(&mut self, egraph: &EGraph<L, N>, rules: &[&Rewrite<L, N>]) {
         let mut newgraph = HashMap::<L, Vec<RewriteConnection<L>>>::default();
-        for (node, connections) in self.graph.iter_mut() {
-            let newkey = node.clone().map_children(|child| egraph.find(child));
-            connections.iter_mut().for_each(|connection| {
-                connection.node.update_children(|child| egraph.find(child));
-            });
-            if let Some(v) = newgraph.get_mut(&newkey) {
-                v.extend(connections.clone());
+        if self.graph.len() == 0 {
+            return;
+        }
+        // when we rewrite an arbitrary node as in a -> (+ a 0)
+        // we choose only one node to be this representative
+        let mut leader_node_hash : HashMap<Id, L> = Default::default();
+
+        let mut get_leader_node = |node: &L, replacement: &L| {
+            let class = egraph.lookup(node.clone()).unwrap();
+            if leader_node_hash.contains_key(&class) {
+                return leader_node_hash.get(&class).unwrap().clone();
             } else {
-                newgraph.insert(newkey, connections.clone());
+                leader_node_hash.insert(class, replacement.clone().map_children(|child| egraph.find(child)));
+                return replacement.clone();
+            }
+        };
+
+        for (node, connections) in self.graph.iter() {
+            let newkey = node.clone().map_children(|child| egraph.find(child));
+            let mut num_connections_left = connections.len();
+            connections.iter().for_each(|connection| {
+                let mut new_connection = connection.clone();
+                let mut key = &newkey;
+                let mut temp;
+                if History::<L>::is_arbitrary(rules, &connection.rule_ref, true) {
+                    temp = get_leader_node(node, node);
+                    key = &temp;
+                }
+                if History::<L>::is_arbitrary(rules, &connection.rule_ref, false) {
+                    new_connection.node = get_leader_node(node, &connection.node);
+                } else {
+                    new_connection.node.update_children(|child| egraph.find(child));
+                }
+
+                let mut other_way = new_connection.clone();
+                other_way.node = key.clone();
+                other_way.is_direction_forward = false;
+
+                if let Some(v) = newgraph.get_mut(&new_connection.node) {
+                    v.push(other_way);
+                } else {
+                    newgraph.insert(new_connection.node.clone(), vec![other_way]);
+                }
+
+                if let Some(v) = newgraph.get_mut(&key) {
+                    v.push(new_connection);
+                } else {
+                    newgraph.insert(key.clone(), vec![new_connection]);
+                }
+            });
+        }
+
+        // fix nodes which have been stranded by moving rewrites to the leader node
+        for (node, connections) in self.graph.iter() {
+            let key = node.clone().map_children(|child| egraph.find(child));
+            if newgraph.get(&key) == None || newgraph.get(&key).unwrap().len() == 0 {
+                let mut new_connection = connections[0].clone();
+                new_connection.node.update_children(|child| egraph.find(child));
+                let mut other_way = new_connection.clone();
+                other_way.node = key.clone();
+                other_way.is_direction_forward = false;
+                if let Some(v) = newgraph.get_mut(&new_connection.node) {
+                    v.push(other_way);
+                } else {
+                    newgraph.insert(new_connection.node.clone(), vec![other_way]);
+                }
+
+                if let Some(v) = newgraph.get_mut(&key) {
+                    v.push(new_connection);
+                } else {
+                    newgraph.insert(key, vec![new_connection]);
+                }
             }
         }
 
@@ -536,7 +612,7 @@ impl<L: Language> History<L> {
                 if steps >= fuel {
                     break;
                 }
-                if all_paths.len() > 0 && all_paths.len().pow(4) >= fuel  {
+                if all_paths.len() > 0 && all_paths.len().pow(2) >= fuel  {
                     break;
                 }
                 steps += 1;

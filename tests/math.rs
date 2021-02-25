@@ -429,6 +429,16 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
+    math_test_prove_simple_match_single_var_backwards, rules(),
+    "a" => "(+ (+ (+ a 0) 0) 0)"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        check_proof(&mut r, rules(), "(+ (+ (+ a 0) 0) 0)",
+                    "a",
+                    Some(vec!["(+ (+ (+ a 0) 0) 0)", "<= add-zero", "(<= (+ (+ a 0) 0))", "<= add-zero", "(<= (+ a 0))", "<= add-zero", "(<= a)"]));
+    }
+}
+
+egg::test_fn! {
     math_test_prove_simplify_const, rules(),
     runner = Runner::default()
         .with_iter_limit(2)
@@ -463,7 +473,7 @@ egg::test_fn! {
         println!("running proof");
         check_proof(&mut r, rules(), "1",
                         "(+ 1 (- a (* (- 2 1) a)))",
-                    Some(vec!["1", "<= metadata-eval", "(<= (+ 1 0))", "<= cancel-sub", "(+ 1 (<= (- a (=> a))))", "add-zero =>", "(+ 1 (- a (+ (=> a) 0)))", "add-zero =>", "(+ 1 (- a (+ (+ a 0) 0)))", "<= add-zero", "(+ 1 (- a (+ (<= (=> a)) 0)))", "mul-one =>", "(+ 1 (- a (+ (* (<= a) 1) 0)))", "<= comm-mul", "(+ 1 (- a (+ (<= (* 1 (<= a))) 0)))", "<= metadata-eval", "(+ 1 (- a (+ (<= (* 1 (<= a))) (<= (=> (* 0 1))))))", "comm-mul =>", "(+ 1 (- a (+ (<= (* 1 (<= a))) (* 1 0))))", "<= distribute", "(+ 1 (- a (<= (* 1 (+ (<= a) 0)))))", "<= metadata-eval", "(+ 1 (- a (* (<= (- 2 1)) (+ (<= a) 0))))", "<= add-zero", "(+ 1 (- a (* (<= (- 2 1)) (<= a))))"]));
+                        Some(vec!["1", "<= metadata-eval", "(<= (+ 1 0))", "<= cancel-sub", "(+ 1 (<= (- a (=> a))))", "mul-one =>", "(+ 1 (- a (* a 1)))", "<= comm-mul", "(+ 1 (- a (<= (* 1 a))))", "<= metadata-eval", "(+ 1 (- a (* (<= (- 2 1)) a)))"]));
     }
 }
 
