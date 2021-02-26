@@ -416,7 +416,7 @@ impl<L: Language> History<L> {
             connections.iter().for_each(|connection| {
                 let mut new_connection = connection.clone();
                 let mut key = &newkey;
-                let mut temp;
+                /*let mut temp;
                 if History::<L>::is_arbitrary(rules, &connection.rule_ref, true) {
                     temp = get_leader_node(node, node);
                     key = &temp;
@@ -425,7 +425,8 @@ impl<L: Language> History<L> {
                     new_connection.node = get_leader_node(node, &connection.node);
                 } else {
                     new_connection.node.update_children(|child| egraph.find(child));
-                }
+                }*/
+                new_connection.node.update_children(|child| egraph.find(child));
 
                 let mut other_way = new_connection.clone();
                 other_way.node = key.clone();
@@ -488,7 +489,7 @@ impl<L: Language> History<L> {
         } else {
             let lg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, left));
             let rg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, right));
-            let INITIAL_FUEL = 100_000;
+            let INITIAL_FUEL = 10_000_000;
             let MAX_FUEL = 100_000_000;
             let mut fuel = INITIAL_FUEL;
             while (fuel <= MAX_FUEL) {
@@ -530,6 +531,7 @@ impl<L: Language> History<L> {
         seen_memo: SeenMemo<L>,
         fuel_in: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
+        println!("fuel: {}", fuel_in);
         if fuel_in <= 1 {
             println!("Out of fuel");
             return None;
@@ -612,7 +614,7 @@ impl<L: Language> History<L> {
                 if steps >= fuel {
                     break;
                 }
-                if all_paths.len() > 0 && all_paths.len().pow(2) >= fuel  {
+                if all_paths.len() > 0 && all_paths.len().pow(4) >= fuel  {
                     break;
                 }
                 steps += 1;
@@ -657,8 +659,6 @@ impl<L: Language> History<L> {
         let fuel_partition = fuel / all_paths.len();
         let mut counter = 1;
         for path in all_paths {
-            println!("Path len: {}", path.len());
-            let step_fuel = fuel_partition / (path.len() + 1);
             counter += 1;
             let reversed = path.reverse();
             let mut list_nodes = reversed.clone();
@@ -676,7 +676,7 @@ impl<L: Language> History<L> {
                             next.connection,
                             var_memo.clone(),
                             new_seen_memo.clone(),
-                            step_fuel,
+                            fuel_partition,
                         );
                         let mut new_expr_memo = expr_memo.clone();
                         if let Some((new_subproof, new_var_memo)) = step {
@@ -724,7 +724,7 @@ impl<L: Language> History<L> {
                         right.clone(),
                         var_memo.clone(),
                         new_seen_memo.clone(),
-                        step_fuel,
+                        fuel_partition,
                     );
                     if let Some((a_last_fragment, a_final_var_memo)) = rest_of_proof {
                         last_fragment = a_last_fragment;
@@ -742,7 +742,7 @@ impl<L: Language> History<L> {
                         &mut last_fragment,
                         var_memo.clone(),
                         new_seen_memo.clone(),
-                        step_fuel,
+                        fuel_partition,
                     );
                     if success {
                         final_var_memo = a_final_var_memo;

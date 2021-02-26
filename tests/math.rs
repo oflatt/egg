@@ -490,6 +490,16 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
+    math_test_prove__integ_part2_smaller, rules(),
+    runner = Runner::default()
+             .with_iter_limit(5),
+    "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        check_proof_exists(&mut r, rules(), "(* (d x x) (i (cos x) x))", "(sin x)");
+    }
+}
+
+egg::test_fn! {
     math_test_prove_integ_part2, rules(),
     runner = Runner::default()
              .with_iter_limit(5),
