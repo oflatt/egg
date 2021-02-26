@@ -368,7 +368,7 @@ fn check_proof_exists(
 }
 
 egg::test_fn! {
-    math_test_prove, simple_rules(),
+    math_prove, simple_rules(),
     runner = Runner::default()
         .with_iter_limit(1)
         .with_scheduler(SimpleScheduler),
@@ -384,7 +384,7 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
-    math_test_prove_children, simple_rules(),
+    math_prove_children, simple_rules(),
     runner = Runner::default()
         .with_iter_limit(7)
         .with_scheduler(SimpleScheduler),
@@ -399,7 +399,7 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
-    math_test_prove_multiple, rules(),
+    math_prove_multiple, rules(),
     runner = Runner::default()
         .with_iter_limit(7)
         .with_scheduler(SimpleScheduler),
@@ -418,7 +418,7 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
-    math_test_prove_simple_match_single_var, rules(),
+    math_prove_simple_match_single_var, rules(),
     "a" => "(+ (+ (+ a 0) 0) 0)"
     @check |mut r: Runner<Math, ConstantFold>| {
         check_proof(&mut r, rules(), "a",
@@ -429,7 +429,7 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
-    math_test_prove_simple_match_single_var_backwards, rules(),
+    math_prove_simple_match_single_var_backwards, rules(),
     "a" => "(+ (+ (+ a 0) 0) 0)"
     @check |mut r: Runner<Math, ConstantFold>| {
         check_proof(&mut r, rules(), "(+ (+ (+ a 0) 0) 0)",
@@ -439,7 +439,7 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
-    math_test_prove_simplify_const, rules(),
+    math_prove_simplify_const, rules(),
     runner = Runner::default()
         .with_iter_limit(2)
         .with_scheduler(SimpleScheduler),
@@ -464,7 +464,7 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
-    math_test_prove_simplify_const_backwards, rules(),
+    math_prove_simplify_const_backwards, rules(),
     runner = Runner::default()
         .with_iter_limit(2)
         .with_scheduler(SimpleScheduler),
@@ -478,7 +478,7 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
-    math_test_prove_integ_x, rules(),
+    math_prove_integ_x, rules(),
     runner = Runner::default()
                      .with_iter_limit(10)
                      .with_scheduler(SimpleScheduler),
@@ -490,7 +490,7 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
-    math_test_prove__integ_part2_smaller, rules(),
+    math_prove__integ_part2_smaller, rules(),
     runner = Runner::default()
              .with_iter_limit(5),
     "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
@@ -500,7 +500,7 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
-    math_test_prove_integ_part2, rules(),
+    math_prove_integ_part2, rules(),
     runner = Runner::default()
              .with_iter_limit(5),
     "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
@@ -510,7 +510,7 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
-    math_test_prove_integ_part2_harder, rules(),
+    math_prove_integ_part2_harder, rules(),
     runner = Runner::default()
              .with_iter_limit(7),
     "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
