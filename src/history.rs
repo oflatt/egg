@@ -490,7 +490,7 @@ impl<L: Language> History<L> {
             let lg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, left));
             let rg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, right));
             let INITIAL_FUEL = 10_000_000;
-            let MAX_FUEL = 100_000_000;
+            let MAX_FUEL = 1_000_000;
             let mut fuel = INITIAL_FUEL;
             while (fuel <= MAX_FUEL) {
                 // push since 0 is a special value and represents no variable
