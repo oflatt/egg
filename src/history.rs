@@ -20,6 +20,8 @@ struct PathNode<'a, L: Language> {
     pub connection: &'a RewriteConnection<L>,
     pub cache_id: usize,
     pub contains: HashTrieSet<&'a L>,
+    pub unique_eclass: Option<Id>,
+    pub smallest_iter: usize,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -34,6 +36,8 @@ pub struct RewriteConnection<L: Language> {
     subst: Subst,
     pub is_direction_forward: bool,
     rule_ref: RuleReference<L>,
+    eclass: Id,
+    iteration: usize
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -320,13 +324,15 @@ impl<L: Language> Default for History<L> {
 }
 
 impl<L: Language> History<L> {
-    fn add_connection(&mut self, from: L, to: L, rule: RuleReference<L>, subst: Subst) {
+    fn add_connection(&mut self, from: L, to: L, rule: RuleReference<L>, subst: Subst, eclass: Id, iteration: usize) {
         let currentfrom = self.graph.get_mut(&from);
         let fromr = RewriteConnection {
             node: to.clone(),
             rule_ref: rule.clone(),
             subst: subst.clone(),
             is_direction_forward: true,
+            iteration: iteration,
+            eclass: eclass
         };
 
         if let Some(v) = currentfrom {
@@ -339,6 +345,7 @@ impl<L: Language> History<L> {
     pub(crate) fn add_union_proof<N: Analysis<L>>(
         &mut self,
         egraph: &mut EGraph<L, N>,
+        eclass: Id,
         from: PatternAst<L>,
         to: PatternAst<L>,
         subst: Subst,
@@ -347,20 +354,25 @@ impl<L: Language> History<L> {
         let from_node = NodeExpr::from_pattern_ast(egraph, &from, &subst, None, None).0;
         let to_node = NodeExpr::from_pattern_ast(egraph, &to, &subst, None, None).0;
         self.add_connection(
-            from_node.node.unwrap(),
+            from_node.node.as_ref().unwrap().clone(),
             to_node.node.unwrap(),
             RuleReference::Pattern((from, to, reason)),
             subst,
+            egraph.lookup(from_node.node.unwrap()).unwrap(),
+            egraph.rebuild_count
         );
     }
 
-    pub(crate) fn add_applications(&mut self, applications: Applications<L>, rule: usize) {
-        for (from, to, subst) in izip!(
+    pub(crate) fn add_applications<N: Analysis<L>>(&mut self, egraph: &mut EGraph<L, N>, applications: Applications<L>, rule: usize) {
+        for (from, to, subst, class) in izip!(
             applications.from_nodes,
             applications.to_nodes,
-            applications.substs
+            applications.substs,
+            applications.affected_classes
         ) {
-            self.add_connection(from, to, RuleReference::Index(rule), subst);
+            let mut from_clone = from.clone();
+            self.add_connection(from, to, RuleReference::Index(rule), subst,
+                                class, egraph.rebuild_count);
         }
     }
 
@@ -484,6 +496,7 @@ impl<L: Language> History<L> {
         left: &RecExpr<L>,
         right: &RecExpr<L>,
     ) -> Option<Proof<L>> {
+        println!("Produce proof!");
         if egraph.add_expr(&left) != egraph.add_expr(&right) {
             println!("Expressions are not from same eclass!");
             return None;
@@ -593,7 +606,14 @@ impl<L: Language> History<L> {
             rule_ref: RuleReference::Index(0),
             subst: Default::default(),
             is_direction_forward: true,
+            eclass: Id::from(0),
+            iteration: 0
         };
+
+        // for a given node, what is the smallest iteration number such that
+        // we have a path that gets to that node using a single eclass
+        // built from that iteration?
+        let mut smallest_iteration: HashMap<&L, usize> = Default::default();
         let mut todo: VecDeque<List<PathNode<L>>> = VecDeque::new();
         let mut cache: HashMap<usize, Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>, ExprMemo<L>)>> = Default::default();
         let initial_expr_memo = ExprMemo::<L>::new().insert(left.alpha_normalize());
@@ -604,6 +624,8 @@ impl<L: Language> History<L> {
             connection: &dummy,
             cache_id: 0,
             contains: HashTrieSet::<&L>::new().insert(left.node.as_ref().unwrap()),
+            unique_eclass: None,
+            smallest_iter: 0
         });
         todo.push_back(first_list.clone());
 
@@ -632,11 +654,54 @@ impl<L: Language> History<L> {
                             continue;
                         }
 
+                        let (unique_class, iteration) = {
+                            if current_node.cache_id == 0 {
+                                (Some(child.eclass), child.iteration)
+                            } else if current_node.unique_eclass == None {
+                                (None, 0)
+                            } else {
+                                let mut smaller_iter = current_node.smallest_iter;
+                                let mut smaller_eclass = current_node.unique_eclass.unwrap();
+                                let mut bigger_iter = child.iteration;
+                                let mut bigger_eclass = child.eclass;
+                                if bigger_iter < smaller_iter {
+                                    std::mem::swap(&mut smaller_iter, &mut bigger_iter);
+                                    std::mem::swap(&mut smaller_eclass, &mut bigger_eclass);
+                                }
+                                if let Some(dist) = egraph.distance_between(smaller_eclass, bigger_eclass) {
+                                    if dist <= bigger_iter-smaller_iter {
+                                        (Some(bigger_eclass), bigger_iter)
+                                    } else {
+                                        (None, 0)
+                                    }
+                                } else {
+                                    (None, 0)
+                                }
+                            }
+                        };
+
+                        
+                        /*
+                        if unique_class != None {
+                            if let Some(best_iter) = smallest_iteration.get(&child.node) {
+                                if best_iter < &iteration {
+                                    continue;
+                                }
+                            }
+                            smallest_iteration.insert(&child.node, iteration);
+                        } else {
+                            if let Some(best_iter) = smallest_iteration.get(&child.node) {
+                                continue;
+                            }
+                        }*/
+                        
                         let new_node = PathNode {
                             node: &child.node,
                             connection: child,
                             cache_id: cache_counter,
                             contains: current_node.contains.insert(&child.node),
+                            unique_eclass: unique_class,
+                            smallest_iter: iteration
                         };
                         cache_counter += 1;
                         let new_list = current_list.push_front(new_node);
@@ -832,7 +897,7 @@ impl<L: Language> History<L> {
             std::mem::swap(&mut sast, &mut rast);
         }
 
-        //println!("rule: {} => {}", sast.to_string(), rast.to_string());
+        println!("rule: {} => {}", sast.to_string(), rast.to_string());
 
         let (search_pattern, first_var_memo) = NodeExpr::from_pattern_ast::<N>(
             egraph,

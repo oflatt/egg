@@ -8,7 +8,7 @@ use log::*;
 
 use crate::{
     Analysis, AstSize, Dot, EClass, Extractor, History, Id, Language, Pattern, PatternAst, Proof,
-    RecExpr, Rewrite, Searcher, Subst, UnionFind,
+    RecExpr, Rewrite, Searcher, Subst, UnionFind, Applications
 };
 
 /** A data structure to keep track of equalities between expressions.
@@ -56,6 +56,7 @@ pub struct EGraph<L: Language, N: Analysis<L>> {
     classes: HashMap<Id, EClass<L, N::Data>>,
     dirty_unions: Vec<Id>,
     repairs_since_rebuild: usize,
+    pub(crate) rebuild_count: usize,
     pub(crate) classes_by_op: HashMap<std::mem::Discriminant<L>, HashSet<Id>>,
 
     pub(crate) history: History<L>,
@@ -88,6 +89,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             dirty_unions: Default::default(),
             classes_by_op: Default::default(),
             repairs_since_rebuild: 0,
+            rebuild_count: 0,
             history: Default::default(),
         }
     }
@@ -133,6 +135,10 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// ```
     pub fn total_size(&self) -> usize {
         self.memo.len()
+    }
+
+    pub fn distance_between(&self, source: Id, dest: Id) -> Option<usize> {
+        self.unionfind.distance_between(source, dest)
     }
 
     /// Iterates over the classes, returning the total number of nodes.
@@ -411,6 +417,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
     pub fn add_union_proof(
         &mut self,
+        eclass: Id,
         from: PatternAst<L>,
         to: PatternAst<L>,
         subst: Subst,
@@ -418,7 +425,14 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     ) {
         let mut hist = Default::default();
         std::mem::swap(&mut self.history, &mut hist);
-        hist.add_union_proof(self, from, to, subst, reason);
+        hist.add_union_proof(self, eclass, from, to, subst, reason);
+        std::mem::swap(&mut self.history, &mut hist);
+    }
+
+    pub fn add_applications(&mut self, applications: Applications<L>, rule: usize) {
+        let mut hist = Default::default();
+        std::mem::swap(&mut self.history, &mut hist);
+        hist.add_applications(self, applications, rule);
         std::mem::swap(&mut self.history, &mut hist);
     }
 }
@@ -605,6 +619,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// assert_eq!(egraph.find(ax), egraph.find(ay));
     /// ```
     pub fn rebuild(&mut self) -> usize {
+        self.rebuild_count += 1;
         let old_hc_size = self.memo.len();
         let old_n_eclasses = self.number_of_classes();
 

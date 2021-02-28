@@ -442,7 +442,7 @@ where
                     }
                     debug!("Applied {} {} times", rw.name(), actually_matched);
                 }
-                self.egraph.history.add_applications(applications, counter);
+                self.egraph.add_applications(applications, counter);
                 counter += 1;
                 self.check_limits()
             })

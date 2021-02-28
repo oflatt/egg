@@ -28,16 +28,35 @@ impl UnionFind {
         self.parents[usize::from(query)].set(new_parent)
     }
 
+    pub fn distance_between(&self, mut current: Id, dest: Id) -> Option<usize> {
+        let mut counter = 0;
+        loop {
+            let parent = self.parent(current);
+            counter += 1;
+            if parent == dest {
+                return Some(counter);
+            }
+            if current == parent {
+                return None;
+            }
+            current = parent;
+        }
+    }
+
     pub fn find(&self, mut current: Id) -> Id {
         loop {
             let parent = self.parent(current);
             if current == parent {
                 return parent;
             }
+            
+            current = parent;
             // do path halving and proceed
+            /*
             let grandparent = self.parent(parent);
             self.set_parent(current, grandparent);
             current = grandparent;
+            */
         }
     }
 

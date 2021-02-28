@@ -94,7 +94,7 @@ impl Analysis<Math> for ConstantFold {
             if did_something {
                 let mut const_pattern: PatternAst<Math> = Default::default();
                 const_pattern.add(ENodeOrVar::ENode(Math::Constant(c)));
-                egraph.add_union_proof(
+                egraph.add_union_proof(id,
                     node,
                     const_pattern,
                     Default::default(),
@@ -445,8 +445,7 @@ egg::test_fn! {
         .with_scheduler(SimpleScheduler),
         "(+ 1 (- a (* (- 2 1) a)))" => "1"
     @check |mut r: Runner<Math, ConstantFold>| {
-        //r.egraph.dot().to_png("target/newegraph.png").unwrap();
-        println!("running proof");
+        r.egraph.dot().to_png("target/newegraph.png").unwrap();
         check_proof(&mut r, rules(), "(+ 1 (- a (* (- 2 1) a)))",
                                     "1",
                     Some(vec!["(+ 1 (- a (=> (* (- 2 1) a))))",
@@ -459,7 +458,6 @@ egg::test_fn! {
                     "cancel-sub =>",
                     "(=> (+ 1 0))",
                     "metadata-eval =>", "1"]));
-
     }
 }
 
