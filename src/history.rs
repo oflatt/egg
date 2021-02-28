@@ -485,12 +485,13 @@ impl<L: Language> History<L> {
         right: &RecExpr<L>,
     ) -> Option<Proof<L>> {
         if egraph.add_expr(&left) != egraph.add_expr(&right) {
+            println!("Expressions are not from same eclass!");
             return None;
         } else {
             let lg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, left));
             let rg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, right));
-            let INITIAL_FUEL = 10_000_000;
-            let MAX_FUEL = 1_000_000;
+            let INITIAL_FUEL = 1_000_000;
+            let MAX_FUEL = 10_000_000;
             let mut fuel = INITIAL_FUEL;
             while (fuel <= MAX_FUEL) {
                 // push since 0 is a special value and represents no variable
