@@ -340,8 +340,9 @@ impl<L: Language> History<L> {
             rule_ref: rule.clone(),
             subst: subst.clone(),
             is_direction_forward: true,
-            iteration: iteration,
-            eclass: eclass,
+            // TODO- unused for now
+            iteration: 0,
+            eclass: Id::from(0),
         };
 
         if let Some(v) = currentfrom {
@@ -540,8 +541,8 @@ impl<L: Language> History<L> {
         } else {
             let lg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, left));
             let rg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, right));
-            let INITIAL_FUEL = 5;
-            let MAX_FUEL = 5;
+            let INITIAL_FUEL = 2;
+            let MAX_FUEL = 20;
             let mut fuel = INITIAL_FUEL;
             while (fuel <= MAX_FUEL) {
                 // push since 0 is a special value and represents no variable
@@ -557,7 +558,7 @@ impl<L: Language> History<L> {
                     seen_memo,
                     fuel,
                 );
-                fuel *= 2;
+                fuel += 1;
                 if r != None {
                     println!("FOUND at fuel: {}", fuel);
                     return Some(r.unwrap().0);
@@ -657,6 +658,7 @@ impl<L: Language> History<L> {
         list_nodes: List<PathNode<L>>,
         left: &Rc<NodeExpr<L>>,
         right: &Rc<NodeExpr<L>>,
+        fuel_in: usize,
         fuel: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
         let (partial_proof, var_memo, _) = cache.get(&list_nodes.first().unwrap().cache_id).unwrap();
@@ -689,7 +691,7 @@ impl<L: Language> History<L> {
                 &mut last_fragment,
                 var_memo.clone(),
                 new_seen_memo.clone(),
-                fuel,
+                fuel_in,
             );
             if success {
                 final_var_memo = a_final_var_memo;
@@ -804,6 +806,7 @@ impl<L: Language> History<L> {
         let mut todo: VecDeque<List<PathNode<L>>> = VecDeque::new();
         let mut cache: HashMap<usize, (Vec<Rc<NodeExpr<L>>>, VarMemo<L>, ExprMemo<L>)> =
             Default::default();
+        let mut deduplication_memo: HashSet<(&L, Rc<NodeExpr<L>>)> = Default::default();
         let initial_expr_memo = ExprMemo::<L>::new().insert(left.alpha_normalize());
         cache.insert(
             0,
@@ -833,6 +836,11 @@ impl<L: Language> History<L> {
                 }
                 let current_list = todo.pop_front().unwrap();
                 let current_node = current_list.first().unwrap();
+                let current_expr_alpha = cache.get(&current_node.cache_id).unwrap().0.last().unwrap().alpha_normalize();
+                let dedup_entry = (current_node.node, current_expr_alpha);
+                if !deduplication_memo.insert(dedup_entry) {
+                    continue;
+                }
 
                 if let Some(children) = self.graph.get(current_list.first().unwrap().node) {
                     let mut children_iterator = children.iter();
@@ -886,6 +894,7 @@ impl<L: Language> History<L> {
                                     new_list,
                                     &left,
                                     &right,
+                                    fuel_in,
                                     fuel
                                 ) {
                                     return Some(proof);
@@ -906,6 +915,7 @@ impl<L: Language> History<L> {
                 first_list,
                 &left,
                 &right,
+                fuel_in,
                 fuel
             );
         }
