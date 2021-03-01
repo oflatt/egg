@@ -14,6 +14,7 @@ pub type Proof<L> = Vec<Rc<NodeExpr<L>>>;
 type SeenMemo<L> = HashTrieSet<(Rc<NodeExpr<L>>, Rc<NodeExpr<L>>)>;
 type VarMemo<L> = Vector<Rc<NodeExpr<L>>>;
 type ExprMemo<L> = HashTrieSet<Rc<NodeExpr<L>>>;
+type ResultFailCache<L> = HashMap<(Rc<NodeExpr<L>>, Rc<NodeExpr<L>>), usize>;
 
 struct PathNode<'a, L: Language> {
     pub node: &'a L,
@@ -549,6 +550,8 @@ impl<L: Language> History<L> {
                 let var_memo = Vector::<Rc<NodeExpr<L>>>::new()
                     .push_back(Rc::new(NodeExpr::new(None, vec![])));
                 let seen_memo: SeenMemo<L> = Default::default();
+                // from an input to a fuel it failed for
+                let mut result_fail_cache = Default::default();
                 let r = self.find_proof_paths(
                     egraph,
                     rules,
@@ -556,6 +559,7 @@ impl<L: Language> History<L> {
                     rg.clone(),
                     var_memo,
                     seen_memo,
+                    &mut result_fail_cache,
                     fuel,
                 );
                 fuel += 1;
@@ -577,6 +581,7 @@ impl<L: Language> History<L> {
         new_seen_memo: SeenMemo<L>,
         list_nodes: &List<PathNode<L>>,
         cache: &mut HashMap<usize, (Vec<Rc<NodeExpr<L>>>, VarMemo<L>, ExprMemo<L>)>,
+        result_fail_cache: &mut ResultFailCache<L>,
         fuel: usize,
     ) -> bool {
         let next = list_nodes.first().unwrap();
@@ -593,6 +598,7 @@ impl<L: Language> History<L> {
             next.connection,
             var_memo.clone(),
             new_seen_memo.clone(),
+            result_fail_cache,
             fuel,
         );
         let mut new_expr_memo = expr_memo.clone();
@@ -658,6 +664,7 @@ impl<L: Language> History<L> {
         list_nodes: List<PathNode<L>>,
         left: &Rc<NodeExpr<L>>,
         right: &Rc<NodeExpr<L>>,
+        result_fail_cache: &mut ResultFailCache<L>,
         fuel_in: usize,
         fuel: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
@@ -674,6 +681,7 @@ impl<L: Language> History<L> {
                 right.clone(),
                 var_memo.clone(),
                 new_seen_memo.clone(),
+                result_fail_cache,
                 fuel,
             );
             if let Some((a_last_fragment, a_final_var_memo)) = rest_of_proof {
@@ -691,6 +699,7 @@ impl<L: Language> History<L> {
                 &mut last_fragment,
                 var_memo.clone(),
                 new_seen_memo.clone(),
+                result_fail_cache,
                 fuel_in,
             );
             if success {
@@ -723,6 +732,7 @@ impl<L: Language> History<L> {
         right_input: Rc<NodeExpr<L>>,
         var_memo: VarMemo<L>,
         seen_memo: SeenMemo<L>,
+        result_fail_cache: &mut ResultFailCache<L>,
         fuel_in: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
         println!(
@@ -748,6 +758,11 @@ impl<L: Language> History<L> {
             left.clone().alpha_normalize(),
             right.clone().alpha_normalize(),
         );
+        if let Some(fail_fuel) = result_fail_cache.get(&seen_entry) {
+            if(fail_fuel >= &fuel_in) {
+                return None;
+            }
+        }
         if seen_memo.contains(&seen_entry) {
             println!("Cycle detected");
             return None;
@@ -883,6 +898,7 @@ impl<L: Language> History<L> {
                             new_seen_memo.clone(),
                             &new_list,
                             &mut cache,
+                            result_fail_cache,
                             fuel,
                         ) {
                             if &child.node == right.node.as_ref().unwrap() {
@@ -894,6 +910,7 @@ impl<L: Language> History<L> {
                                     new_list,
                                     &left,
                                     &right,
+                                    result_fail_cache,
                                     fuel_in,
                                     fuel
                                 ) {
@@ -915,10 +932,12 @@ impl<L: Language> History<L> {
                 first_list,
                 &left,
                 &right,
+                result_fail_cache,
                 fuel_in,
                 fuel
             );
         }
+        result_fail_cache.insert(seen_entry, fuel_in);
         return None;
     }
 
@@ -962,6 +981,7 @@ impl<L: Language> History<L> {
         connection: &RewriteConnection<L>,
         var_memo: Vector<Rc<NodeExpr<L>>>,
         seen_memo: SeenMemo<L>,
+        result_fail_cache: &mut ResultFailCache<L>,
         fuel: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, Vector<Rc<NodeExpr<L>>>)> {
         // returns a new var_memo
@@ -1011,6 +1031,7 @@ impl<L: Language> History<L> {
             Rc::new(search_pattern),
             current_var_memo,
             seen_memo.clone(),
+            result_fail_cache,
             fuel,
         );
         if maybe_subproof == None {
@@ -1051,6 +1072,7 @@ impl<L: Language> History<L> {
         proof: &mut Vec<Rc<NodeExpr<L>>>,
         var_memo: Vector<Rc<NodeExpr<L>>>,
         seen_memo: SeenMemo<L>,
+        result_fail_cache: &mut ResultFailCache<L>,
         fuel: usize,
     ) -> (bool, VarMemo<L>) {
         let left = proof[proof.len() - 1].clone();
@@ -1072,6 +1094,7 @@ impl<L: Language> History<L> {
                 rchild,
                 current_var_memo,
                 seen_memo.clone(),
+                result_fail_cache,
                 fuel,
             );
             if proof_equal_maybe == None {
