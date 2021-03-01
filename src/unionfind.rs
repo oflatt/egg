@@ -49,7 +49,7 @@ impl UnionFind {
             if current == parent {
                 return parent;
             }
-            
+
             current = parent;
             // do path halving and proceed
             /*

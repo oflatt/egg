@@ -94,7 +94,8 @@ impl Analysis<Math> for ConstantFold {
             if did_something {
                 let mut const_pattern: PatternAst<Math> = Default::default();
                 const_pattern.add(ENodeOrVar::ENode(Math::Constant(c)));
-                egraph.add_union_proof(id,
+                egraph.add_union_proof(
+                    id,
                     node,
                     const_pattern,
                     Default::default(),
@@ -488,9 +489,9 @@ egg::test_fn! {
 }
 
 egg::test_fn! {
-    math_prove__integ_part2_smaller, rules(),
+    math_prove_integ_part2_smaller, rules(),
     runner = Runner::default()
-             .with_iter_limit(5),
+             .with_iter_limit(7),
     "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
     @check |mut r: Runner<Math, ConstantFold>| {
         check_proof_exists(&mut r, rules(), "(* (d x x) (i (cos x) x))", "(sin x)");
@@ -507,6 +508,29 @@ egg::test_fn! {
     }
 }
 
+egg::test_fn! {
+    math_prove_integ_part2_harder_1, rules(),
+    runner = Runner::default()
+             .with_iter_limit(7),
+    "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        check_proof_exists(&mut r, rules(), "(* x (i (cos x) x))", "(* x (sin x))");
+    }
+
+}
+
+egg::test_fn! {
+    math_prove_integ_part2_harder_2, rules(),
+    runner = Runner::default()
+             .with_iter_limit(5),
+    "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        check_proof(&mut r, rules(), "(* -1 (i (* (d x x) (i (cos x) x)) x))", "(cos x)",None);
+    }
+
+}
+
+//"(- (* x (i (cos x) x)) (i (* (d x x) (i (cos x) x)) x))"
 egg::test_fn! {
     math_prove_integ_part2_harder, rules(),
     runner = Runner::default()

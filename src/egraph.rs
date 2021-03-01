@@ -7,8 +7,8 @@ use std::{
 use log::*;
 
 use crate::{
-    Analysis, AstSize, Dot, EClass, Extractor, History, Id, Language, Pattern, PatternAst, Proof,
-    RecExpr, Rewrite, Searcher, Subst, UnionFind, Applications
+    Analysis, Applications, AstSize, Dot, EClass, Extractor, History, Id, Language, Pattern,
+    PatternAst, Proof, RecExpr, Rewrite, Searcher, Subst, UnionFind,
 };
 
 /** A data structure to keep track of equalities between expressions.
