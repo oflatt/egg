@@ -25,16 +25,16 @@ enum RuleReference<L> {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub struct RewriteConnection<L: Language> {
-    index: usize,
+    pub index: usize,
     subst: Subst,
     pub is_direction_forward: bool,
     rule_ref: RuleReference<L>,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
-struct GraphNode<L: Language> {
-    node: L,
-    children: Vec<RewriteConnection<L>>,
+pub struct GraphNode<L: Language> {
+    pub node: L,
+    pub children: Vec<RewriteConnection<L>>,
 }
 
 
@@ -312,7 +312,7 @@ impl<L: Language> NodeExpr<L> {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct History<L: Language> {
     // connects nodes in the same eclass to each other, forming a tree for each eclass
-    graph: Vec<GraphNode<L>>,
+    pub graph: Vec<GraphNode<L>>,
     memo: HashMap<L, usize>
 }
 
@@ -587,9 +587,6 @@ impl<L: Language> History<L> {
         while(true) {
             assert!(todo.len() > 0);
             let current = todo.pop_front().unwrap();
-            if prev.get(&current) != None {
-                continue;
-            }
             if &self.graph[current].node == right.node.as_ref().unwrap() {
                 end = current;
                 break;

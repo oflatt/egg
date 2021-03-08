@@ -221,21 +221,22 @@ where
                 })?;
             }
         }
-/*
+
         let hist = &self.egraph.history;
         
-        for (node, connections) in &hist.graph {
-            for connection in connections {
+        for graphnode in &hist.graph {
+            for connection in &graphnode.children {
                 if connection.is_direction_forward {
-                    let id1 = self.egraph.lookup(node.clone()).unwrap();
-                    let id2 = self.egraph.lookup(connection.node.clone()).unwrap();
+                    let othernode = &hist.graph[connection.index].node;
+                    let id1 = self.egraph.lookup(graphnode.node.clone()).unwrap();
+                    let id2 = self.egraph.lookup(othernode.clone()).unwrap();
                     /*println!("node 1: {}", enode_to_string(node));
                     for n in self.egraph[id1].iter() {
                         println!("   in class: {}", enode_to_string(n));
                     }*/
-                    let i_in_class_o = self.egraph[id1].iter().position(|n| n == node);
+                    let i_in_class_o = self.egraph[id1].iter().position(|n| n == &graphnode.node);
                     let i_in_class_2_o =
-                        self.egraph[id2].iter().position(|n| n == &connection.node);
+                        self.egraph[id2].iter().position(|n| n == othernode);
                     if let (Some(i_in_class), Some(i_in_class_2)) = (i_in_class_o, i_in_class_2_o) {
                         writeln!(
                             f,
@@ -245,7 +246,7 @@ where
                     }
                 }
             }
-        }*/
+        }
 
         write!(f, "}}")
     }

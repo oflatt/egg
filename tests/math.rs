@@ -377,6 +377,7 @@ egg::test_fn! {
     =>
     "(+ b a)"
     @check |mut r: Runner<Math, ConstantFold>| {
+        r.egraph.dot().to_png("target/tree.png").unwrap();
         check_proof(&mut r, simple_rules(), "(+ a b)", "(+ b a)",
                     Some(vec!["(=> (+ a b))",
                          "comm-add =>",
@@ -446,7 +447,7 @@ egg::test_fn! {
         .with_scheduler(SimpleScheduler),
         "(+ 1 (- a (* (- 2 1) a)))" => "1"
     @check |mut r: Runner<Math, ConstantFold>| {
-        r.egraph.dot().to_png("target/newegraph.png").unwrap();
+        //r.egraph.dot().to_png("target/newegraph.png").unwrap();
         check_proof(&mut r, rules(), "(+ 1 (- a (* (- 2 1) a)))",
                                     "1",
                     Some(vec!["(+ 1 (- a (=> (* (- 2 1) a))))",
