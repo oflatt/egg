@@ -6,15 +6,44 @@ use std::fmt::Debug;
 // instantiate UnionFind in one place (EGraph), so this type bound
 // isn't intrusive
 
+enum Reason {
+    Index(usize),
+    Pattern((PatternAst<L>, PatternAst<L>, String)),
+}
+
+enum InnerReason {
+    Reason(Reason),
+    Congruence,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct UnionFind {
     parents: Vec<Cell<Id>>,
+    roots: Vec<Id>,
+    enodes: Vec<L>,
+    reasons: Vec<Option<InnerReason>>,
 }
 
-impl UnionFind {
+fn unwrap_or_clone<L: Language>(node: Rc<NodeExpr<L>>) -> NodeExpr<L> {
+    match Rc::try_unwrap(node) {
+        Ok(n) => n,
+        Err(original) => (*original).clone(),
+    }
+}
+
+impl UnionFind<L: Language> {
     pub fn make_set(&mut self) -> Id {
         let id = Id::from(self.parents.len());
         self.parents.push(Cell::new(id));
+        id
+    }
+
+    pub fn make_set_with(&mut self, node: &L) -> Id {
+        let id = Id::from(self.parents.len());
+        self.parents.push(Cell::new(id));
+        self.roots.push(id);
+        self.enodes.push(node.clone());
+        self.reasons.push(None);
         id
     }
 
@@ -28,19 +57,15 @@ impl UnionFind {
         self.parents[usize::from(query)].set(new_parent)
     }
 
-    pub fn distance_between(&self, mut current: Id, dest: Id) -> Option<usize> {
-        let mut counter = 0;
-        loop {
-            let parent = self.parent(current);
-            counter += 1;
-            if parent == dest {
-                return Some(counter);
-            }
-            if current == parent {
-                return None;
-            }
-            current = parent;
-        }
+    #[inline(always)]
+    fn root_parent(&mut self, query: Id) -> Id {
+        self.roots[usize::from(query)].get()
+    }
+
+    #[inline(always)]
+    fn root_set_parent(&mut self, query: Id, new_parent: Id, reason: InnerReason) {
+        self.roots[usize::from(query)] = new_parent;
+        self.reasons[usize::from(query)] = Some(reason);
     }
 
     pub fn find(&self, mut current: Id) -> Id {
@@ -52,12 +77,19 @@ impl UnionFind {
 
             current = parent;
             // do path halving and proceed
-            /*
             let grandparent = self.parent(parent);
             self.set_parent(current, grandparent);
             current = grandparent;
-            */
         }
+    }
+
+    fn perform_union(&mut self, mut root1: Id, mut root2: Id) -> (Id, Id) {
+        if root1 > root2 {
+            // NOTE egg actuallly relied on the returned id being the minimum
+            std::mem::swap(&mut root1, &mut root2);
+        }
+        self.set_parent(root2, root1);
+        (root1, root2)
     }
 
     /// Returns (new_leader, old_leader)
@@ -68,12 +100,20 @@ impl UnionFind {
         if root1 == root2 {
             (root1, root2)
         } else {
-            if root1 > root2 {
-                // NOTE egg actuallly relied on the returned id being the minimum
-                std::mem::swap(&mut root1, &mut root2);
-            }
-            self.set_parent(root2, root1);
+            self.perform_union(root1, root2)
+        }
+    }
+
+    /// Returns (new_leader, old_leader)
+    pub fn union_with(&mut self, set1: Id, set2: Id, reason: InnerReason) -> (Id, Id) {
+        let root1 = self.find(set1);
+        let root2 = self.find(set2);
+        if root1 == root2 {
             (root1, root2)
+        } else {
+            let res = self.perform_union(root1, root2);
+            self.root_set_parent(root1, root2, reason);
+            res
         }
     }
 }

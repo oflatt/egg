@@ -61,7 +61,7 @@ fn enode_to_string<L: Language>(node_ref: &L) -> String {
     strings.concat()
 }
 
-fn unwrap_or_clone<L: Language>(node: Rc<NodeExpr<L>>) -> NodeExpr<L> {
+pub(crate) fn unwrap_or_clone<L: Language>(node: Rc<NodeExpr<L>>) -> NodeExpr<L> {
     match Rc::try_unwrap(node) {
         Ok(n) => n,
         Err(original) => (*original).clone(),
