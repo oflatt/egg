@@ -16,30 +16,27 @@ type VarMemo<L> = Vector<Rc<NodeExpr<L>>>;
 type ExprMemo<L> = HashTrieSet<Rc<NodeExpr<L>>>;
 type ResultFailCache<L> = HashMap<(Rc<NodeExpr<L>>, Rc<NodeExpr<L>>), usize>;
 
-struct PathNode<'a, L: Language> {
-    pub node: &'a L,
-    pub connection: &'a RewriteConnection<L>,
-    pub cache_id: usize,
-    pub contains: HashTrieSet<&'a L>,
-    pub unique_eclass: Option<Id>,
-    pub smallest_iter: usize,
-}
-
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 enum RuleReference<L> {
+    Congruence,
     Index(usize),
     Pattern((PatternAst<L>, PatternAst<L>, String)),
 }
 
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub struct RewriteConnection<L: Language> {
-    pub node: L,
+    index: usize,
     subst: Subst,
     pub is_direction_forward: bool,
     rule_ref: RuleReference<L>,
-    eclass: Id,
-    iteration: usize,
 }
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
+struct GraphNode<L: Language> {
+    node: L,
+    children: Vec<RewriteConnection<L>>,
+}
+
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub struct NodeExpr<L: Language> {
@@ -177,6 +174,7 @@ impl<L: Language> NodeExpr<L> {
             match &self.rule_ref {
                 RuleReference::Pattern((_l, _r, reason)) => reason,
                 RuleReference::Index(rule_index) => &rules[*rule_index].name,
+                RuleReference::Congruence => "congruence"
             }
         };
 
@@ -313,44 +311,58 @@ impl<L: Language> NodeExpr<L> {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct History<L: Language> {
-    // while it may have cycles, it guarantees a non-trivial path between any two enodes in an eclass
-    pub graph: HashMap<L, Vec<RewriteConnection<L>>>,
+    // connects nodes in the same eclass to each other, forming a tree for each eclass
+    graph: Vec<GraphNode<L>>,
+    memo: HashMap<L, usize>
 }
 
 impl<L: Language> Default for History<L> {
     fn default() -> Self {
         History::<L> {
             graph: Default::default(),
+            memo: Default::default()
         }
     }
 }
 
+
 impl<L: Language> History<L> {
+    // from and to must be from different eclasses
     fn add_connection(
         &mut self,
         from: L,
         to: L,
         rule: RuleReference<L>,
         subst: Subst,
-        eclass: Id,
-        iteration: usize,
     ) {
-        let currentfrom = self.graph.get_mut(&from);
+        let currentfrom = *self.memo.get(&from).unwrap();
+        let currentto = *self.memo.get(&to).unwrap();
+        
         let fromr = RewriteConnection {
-            node: to.clone(),
-            rule_ref: rule.clone(),
+            index: currentto,
             subst: subst.clone(),
             is_direction_forward: true,
-            // TODO- unused for now
-            iteration: 0,
-            eclass: Id::from(0),
+            rule_ref: rule.clone(),
         };
 
-        if let Some(v) = currentfrom {
-            v.push(fromr);
-        } else {
-            self.graph.insert(from.clone(), vec![fromr]);
-        }
+        let tor = RewriteConnection {
+            index: currentfrom,
+            subst: subst.clone(),
+            is_direction_forward: false,
+            rule_ref: rule.clone(),
+        };
+
+        self.graph[currentfrom].children.push(fromr);
+        self.graph[currentto].children.push(tor);
+    }
+
+    pub fn union(&mut self, from: L, to: L) {
+        self.add_connection(from, to, RuleReference::Congruence, Default::default());
+    }
+
+    pub fn add_new_node(&mut self, node: L) {
+        self.graph.push(GraphNode { node: node.clone(), children: Default::default()});
+        self.memo.insert(node, self.graph.len()-1);
     }
 
     pub(crate) fn add_union_proof<N: Analysis<L>>(
@@ -369,8 +381,6 @@ impl<L: Language> History<L> {
             to_node.node.unwrap(),
             RuleReference::Pattern((from, to, reason)),
             subst,
-            egraph.lookup(from_node.node.unwrap()).unwrap(),
-            egraph.rebuild_count,
         );
     }
 
@@ -392,8 +402,6 @@ impl<L: Language> History<L> {
                 to,
                 RuleReference::Index(rule),
                 subst,
-                class,
-                egraph.rebuild_count,
             );
         }
     }
@@ -419,6 +427,7 @@ impl<L: Language> History<L> {
                     pattern = a;
                 }
             }
+            RuleReference::Congruence => return true
         }
         if let ENodeOrVar::Var(_) = pattern.as_ref().last().unwrap() {
             return true;
@@ -427,105 +436,20 @@ impl<L: Language> History<L> {
         }
     }
 
-    // updates all enodes to be canonical
-    // also adds edges going in other direction
+    // updates memo to use cannonical references
     pub(crate) fn rebuild<N: Analysis<L>>(
         &mut self,
         egraph: &EGraph<L, N>,
-        rules: &[&Rewrite<L, N>],
     ) {
-        let mut newgraph = HashMap::<L, Vec<RewriteConnection<L>>>::default();
-        if self.graph.len() == 0 {
-            return;
+        let mut newmemo: HashMap<L, usize> = Default::default();
+        for (node, index) in self.memo.iter() {
+            newmemo.insert(node.clone().map_children(|child| egraph.find(child)), *index);
         }
-        // when we rewrite an arbitrary node as in a -> (+ a 0)
-        // we choose only one node to be this representative
-        let mut leader_node_hash: HashMap<Id, L> = Default::default();
+        self.memo = newmemo;
 
-        let mut get_leader_node = |node: &L, replacement: &L| {
-            let class = egraph.lookup(node.clone()).unwrap();
-            if leader_node_hash.contains_key(&class) {
-                return leader_node_hash.get(&class).unwrap().clone();
-            } else {
-                leader_node_hash.insert(
-                    class,
-                    replacement.clone().map_children(|child| egraph.find(child)),
-                );
-                return replacement.clone();
-            }
-        };
-
-        for (node, connections) in self.graph.iter() {
-            let newkey = node.clone().map_children(|child| egraph.find(child));
-            let mut num_connections_left = connections.len();
-            connections.iter().for_each(|connection| {
-                let mut new_connection = connection.clone();
-                let mut key = &newkey;
-                // this code moves all arbitrary node connections to a leader node
-                // it doesn't work right now because it makes paths longer
-                /*let mut temp;
-                if History::<L>::is_arbitrary(rules, &connection.rule_ref, true) {
-                    temp = get_leader_node(node, node);
-                    key = &temp;
-                }
-                if History::<L>::is_arbitrary(rules, &connection.rule_ref, false) {
-                    new_connection.node = get_leader_node(node, &connection.node);
-                } else {
-                    new_connection.node.update_children(|child| egraph.find(child));
-                }*/
-                new_connection
-                    .node
-                    .update_children(|child| egraph.find(child));
-
-                let mut other_way = new_connection.clone();
-                other_way.node = key.clone();
-                other_way.is_direction_forward = false;
-
-                if let Some(v) = newgraph.get_mut(&new_connection.node) {
-                    v.push(other_way);
-                } else {
-                    newgraph.insert(new_connection.node.clone(), vec![other_way]);
-                }
-
-                if let Some(v) = newgraph.get_mut(&key) {
-                    v.push(new_connection);
-                } else {
-                    newgraph.insert(key.clone(), vec![new_connection]);
-                }
-            });
+        for graphnode in self.graph.iter_mut() {
+            graphnode.node = graphnode.node.clone().map_children(|child| egraph.find(child));
         }
-
-        // fix nodes which have been stranded by moving rewrites to the leader node
-        for (node, connections) in self.graph.iter() {
-            let key = node.clone().map_children(|child| egraph.find(child));
-            if newgraph.get(&key) == None || newgraph.get(&key).unwrap().len() == 0 {
-                let mut new_connection = connections[0].clone();
-                new_connection
-                    .node
-                    .update_children(|child| egraph.find(child));
-                let mut other_way = new_connection.clone();
-                other_way.node = key.clone();
-                other_way.is_direction_forward = false;
-                if let Some(v) = newgraph.get_mut(&new_connection.node) {
-                    v.push(other_way);
-                } else {
-                    newgraph.insert(new_connection.node.clone(), vec![other_way]);
-                }
-
-                if let Some(v) = newgraph.get_mut(&key) {
-                    v.push(new_connection);
-                } else {
-                    newgraph.insert(key, vec![new_connection]);
-                }
-            }
-        }
-
-        for (_node, connections) in newgraph.iter_mut() {
-            connections.sort_unstable();
-            connections.dedup();
-        }
-
-        self.graph = newgraph;
     }
 
     pub(crate) fn produce_proof<N: Analysis<L>>(
@@ -574,154 +498,6 @@ impl<L: Language> History<L> {
         }
     }
 
-    fn perform_proof_step<N: Analysis<L>>(
-        &self,
-        egraph: &mut EGraph<L, N>,
-        rules: &[&Rewrite<L, N>],
-        new_seen_memo: SeenMemo<L>,
-        list_nodes: &List<PathNode<L>>,
-        cache: &mut HashMap<usize, (Vec<Rc<NodeExpr<L>>>, VarMemo<L>, ExprMemo<L>)>,
-        result_fail_cache: &mut ResultFailCache<L>,
-        fuel: usize,
-    ) -> bool {
-        let next = list_nodes.first().unwrap();
-        let rest_of_list = list_nodes.drop_first().unwrap();
-        let node = rest_of_list.first().unwrap();
-
-        let (partial_proof, var_memo, expr_memo) = cache.get(&node.cache_id).unwrap();
-
-        let left_expr = partial_proof[partial_proof.len() - 1].clone();
-        let step = self.prove_one_step(
-            egraph,
-            rules,
-            left_expr.clone(),
-            next.connection,
-            var_memo.clone(),
-            new_seen_memo.clone(),
-            result_fail_cache,
-            fuel,
-        );
-        let mut new_expr_memo = expr_memo.clone();
-        if let Some((new_subproof, new_var_memo)) = step {
-            let mut done = false;
-            for i in 1..new_subproof.len() {
-                let normalized = new_subproof[i].alpha_normalize();
-                if new_expr_memo.contains(&normalized) {
-                    done = true;
-                    break;
-                } else {
-                    new_expr_memo = new_expr_memo.insert(normalized);
-                }
-            }
-            if done {
-                false
-            } else {
-                cache.insert(next.cache_id, (new_subproof, new_var_memo, new_expr_memo));
-                true
-            }
-        } else {
-            false
-        }
-    }
-
-    fn get_iteration_of_node<N: Analysis<L>>(
-        &self,
-        egraph: &mut EGraph<L, N>,
-        current_node: &PathNode<L>,
-        child: &RewriteConnection<L>,
-    ) -> (Option<Id>, usize) {
-        if current_node.cache_id == 0 {
-            (Some(child.eclass), child.iteration)
-        } else if current_node.unique_eclass == None {
-            (None, 0)
-        } else {
-            let mut smaller_iter = current_node.smallest_iter;
-            let mut smaller_eclass = current_node.unique_eclass.unwrap();
-            let mut bigger_iter = child.iteration;
-            let mut bigger_eclass = child.eclass;
-            if bigger_iter < smaller_iter {
-                std::mem::swap(&mut smaller_iter, &mut bigger_iter);
-                std::mem::swap(&mut smaller_eclass, &mut bigger_eclass);
-            }
-            if let Some(dist) = egraph.distance_between(smaller_eclass, bigger_eclass) {
-                if dist <= bigger_iter - smaller_iter {
-                    (Some(bigger_eclass), bigger_iter)
-                } else {
-                    (None, 0)
-                }
-            } else {
-                (None, 0)
-            }
-        }
-    }
-
-    fn finish_proof<N: Analysis<L>>(
-        &self,
-        egraph: &mut EGraph<L, N>,
-        rules: &[&Rewrite<L, N>],
-        new_seen_memo: SeenMemo<L>,
-        cache: &HashMap<usize, (Vec<Rc<NodeExpr<L>>>, VarMemo<L>, ExprMemo<L>)>,
-        list_nodes: List<PathNode<L>>,
-        left: &Rc<NodeExpr<L>>,
-        right: &Rc<NodeExpr<L>>,
-        result_fail_cache: &mut ResultFailCache<L>,
-        fuel_in: usize,
-        fuel: usize,
-    ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
-        let (partial_proof, var_memo, _) = cache.get(&list_nodes.first().unwrap().cache_id).unwrap();
-        let mut last_fragment = vec![];
-        let mut final_var_memo = Default::default();
-        let latest = partial_proof[partial_proof.len() - 1].clone();
-
-        if partial_proof[partial_proof.len() - 1].node != right.node {
-            let rest_of_proof = self.find_proof_paths(
-                egraph,
-                rules,
-                latest,
-                right.clone(),
-                var_memo.clone(),
-                new_seen_memo.clone(),
-                result_fail_cache,
-                fuel,
-            );
-            if let Some((a_last_fragment, a_final_var_memo)) = rest_of_proof {
-                last_fragment = a_last_fragment;
-                final_var_memo = a_final_var_memo;
-            } else {
-                return None;
-            }
-        } else {
-            last_fragment.push(latest);
-            let (success, a_final_var_memo) = self.prove_children_equal(
-                egraph,
-                rules,
-                right.clone(),
-                &mut last_fragment,
-                var_memo.clone(),
-                new_seen_memo.clone(),
-                result_fail_cache,
-                fuel_in,
-            );
-            if success {
-                final_var_memo = a_final_var_memo;
-            } else {
-                return None;
-            }
-        }
-        // now we assemble the proof and return it
-        let mut entire_proof = vec![left.clone()];
-        let mut iter = list_nodes.reverse();
-        while iter.len() > 0 {
-            entire_proof.pop();
-            let sub_part = cache.get(&iter.first().unwrap().cache_id).unwrap();
-            entire_proof.extend(sub_part.0.clone());
-            iter = iter.drop_first().unwrap();
-        }
-        entire_proof.pop();
-        entire_proof.extend(last_fragment);
-        return Some((entire_proof, final_var_memo));
-    }
-
     // find a sequence of rewrites between two enodes
     // fuel determines the maximum number of backtracks before giving up
     fn find_proof_paths<N: Analysis<L>>(
@@ -746,7 +522,7 @@ impl<L: Language> History<L> {
             return None;
         }
         // cost of this function
-        let fuel = fuel_in - 1;
+        let fuel = fuel_in;
 
         let mut current_var_memo = var_memo;
         let (left, new_memo_1) = History::<L>::get_from_var_memo(&left_input, current_var_memo);
@@ -758,13 +534,9 @@ impl<L: Language> History<L> {
             left.clone().alpha_normalize(),
             right.clone().alpha_normalize(),
         );
-        if let Some(fail_fuel) = result_fail_cache.get(&seen_entry) {
-            if(fail_fuel >= &fuel_in) {
-                return None;
-            }
-        }
+
         if seen_memo.contains(&seen_entry) {
-            println!("Cycle detected");
+            panic!("Cycle detected");
             return None;
         }
         let new_seen_memo = seen_memo.insert(seen_entry.clone());
@@ -805,140 +577,91 @@ impl<L: Language> History<L> {
             egraph.lookup(right.node.as_ref().unwrap().clone())
         );
 
-        let dummy = RewriteConnection {
-            node: left.node.as_ref().unwrap().clone(),
-            rule_ref: RuleReference::Index(0),
-            subst: Default::default(),
-            is_direction_forward: true,
-            eclass: Id::from(0),
-            iteration: 0,
-        };
+        let mut todo: VecDeque<usize> = VecDeque::new();
+        let mut prev: HashMap<usize, usize> = Default::default();
+        let mut prevc: HashMap<usize, &RewriteConnection<L>> = Default::default();
+        let initial = *self.memo.get(left.node.as_ref().unwrap()).unwrap();
+        let mut end = initial;
+        prev.insert(initial, initial);
+        todo.push_back(initial);
+        while(true) {
+            assert!(todo.len() > 0);
+            let current = todo.pop_front().unwrap();
+            if prev.get(&current) != None {
+                continue;
+            }
+            if &self.graph[current].node == right.node.as_ref().unwrap() {
+                end = current;
+                break;
+            }
 
-        // for a given node, what is the smallest iteration number such that
-        // we have a path that gets to that node using a single eclass
-        // built from that iteration?
-        let mut smallest_iteration: HashMap<&L, usize> = Default::default();
-        let mut todo: VecDeque<List<PathNode<L>>> = VecDeque::new();
-        let mut cache: HashMap<usize, (Vec<Rc<NodeExpr<L>>>, VarMemo<L>, ExprMemo<L>)> =
-            Default::default();
-        let mut deduplication_memo: HashSet<(&L, Rc<NodeExpr<L>>)> = Default::default();
-        let initial_expr_memo = ExprMemo::<L>::new().insert(left.alpha_normalize());
-        cache.insert(
-            0,
-            (
-                vec![left.clone()],
-                current_var_memo.clone(),
-                initial_expr_memo,
-            ),
-        );
-        let mut cache_counter = 1;
-        let first_list = List::<PathNode<L>>::new().push_front(PathNode {
-            node: left.node.as_ref().unwrap(),
-            connection: &dummy,
-            cache_id: 0,
-            contains: HashTrieSet::<&L>::new().insert(left.node.as_ref().unwrap()),
-            unique_eclass: None,
-            smallest_iter: 0,
-        });
-        todo.push_back(first_list.clone());
-
-        let mut steps = 0;
-        if left.node != right.node {
-            while true {
-                steps += 1;
-                if todo.len() == 0 {
-                    break;
-                }
-                let current_list = todo.pop_front().unwrap();
-                let current_node = current_list.first().unwrap();
-                let current_expr_alpha = cache.get(&current_node.cache_id).unwrap().0.last().unwrap().alpha_normalize();
-                let dedup_entry = (current_node.node, current_expr_alpha);
-                if !deduplication_memo.insert(dedup_entry) {
-                    continue;
-                }
-
-                if let Some(children) = self.graph.get(current_list.first().unwrap().node) {
-                    let mut children_iterator = children.iter();
-                    for child in children_iterator {
-                        if current_node.contains.contains(&child.node) {
-                            continue;
-                        }
-
-                        let (unique_class, iteration) =
-                            self.get_iteration_of_node(egraph, &current_node, child);
-
-                        /* This code greedily takes paths that are made up of smaller iterations. It isn't sound
-                        if unique_class != None {
-                            if let Some(best_iter) = smallest_iteration.get(&child.node) {
-                                if best_iter < &iteration {
-                                    continue;
-                                }
-                            }
-                            smallest_iteration.insert(&child.node, iteration);
-                        } else {
-                            if let Some(best_iter) = smallest_iteration.get(&child.node) {
-                                continue;
-                            }
-                        }*/
-
-                        let new_node = PathNode {
-                            node: &child.node,
-                            connection: child,
-                            cache_id: cache_counter,
-                            contains: current_node.contains.insert(&child.node),
-                            unique_eclass: unique_class,
-                            smallest_iter: iteration,
-                        };
-                        cache_counter += 1;
-                        let new_list = current_list.push_front(new_node);
-
-                        if self.perform_proof_step(
-                            egraph,
-                            rules,
-                            new_seen_memo.clone(),
-                            &new_list,
-                            &mut cache,
-                            result_fail_cache,
-                            fuel,
-                        ) {
-                            if &child.node == right.node.as_ref().unwrap() {
-                                if let Some(proof) = self.finish_proof(
-                                    egraph,
-                                    rules,
-                                    new_seen_memo.clone(),
-                                    &cache,
-                                    new_list,
-                                    &left,
-                                    &right,
-                                    result_fail_cache,
-                                    fuel_in,
-                                    fuel
-                                ) {
-                                    return Some(proof);
-                                }
-                            } else {
-                                todo.push_back(new_list);
-                            }
-                        }
-                    }
+            for child in &self.graph[current].children {
+                if prev.get(&child.index) == None {
+                    prev.insert(child.index, current);
+                    prevc.insert(child.index, &child);
+                    todo.push_back(child.index);   
                 }
             }
-        } else {
-            return self.finish_proof(
+        }
+
+        let mut path: Vec<&RewriteConnection<L>> = Default::default();
+        let mut trail = end;
+        while(trail != initial) {
+            let p = prev[&trail];
+            path.push(prevc.get(&trail).unwrap());
+            trail = p;
+        }
+        let mut proof = vec![left.clone()];
+        for i in 0..path.len() {
+            let connection = path[path.len()-1-i];
+            let recent = proof.pop().unwrap();
+            if let Some((subproof, vmemo)) = self.prove_one_step(egraph, rules, recent, connection, current_var_memo, new_seen_memo.clone(), result_fail_cache, fuel) {
+                current_var_memo = vmemo;
+                proof.extend(subproof);
+            } else {
+                panic!("failed to find subproof");
+                return None;
+            }
+        }
+
+        if proof[proof.len()-1].node != right.node {
+            let latest = proof.pop().unwrap();
+            let rest_of_proof = self.find_proof_paths(
                 egraph,
                 rules,
+                latest,
+                right.clone(),
+                current_var_memo.clone(),
                 new_seen_memo.clone(),
-                &cache,
-                first_list,
-                &left,
-                &right,
+                result_fail_cache,
+                fuel,
+            );
+            if let Some((subproof, vmemo)) = rest_of_proof {
+                current_var_memo = vmemo;
+                proof.extend(subproof);
+            } else {
+                return None;
+            }
+        } else {
+            let (success, vmemo) = self.prove_children_equal(
+                egraph,
+                rules,
+                right.clone(),
+                &mut proof,
+                current_var_memo.clone(),
+                new_seen_memo.clone(),
                 result_fail_cache,
                 fuel_in,
-                fuel
             );
+            if success {
+                current_var_memo = vmemo;
+            } else {
+                panic!("Failed to prove children equal");
+                return None;
+            }
         }
-        result_fail_cache.insert(seen_entry, fuel_in);
-        return None;
+
+        Some((proof, current_var_memo))
     }
 
     fn get_from_var_memo(
@@ -986,6 +709,7 @@ impl<L: Language> History<L> {
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, Vector<Rc<NodeExpr<L>>>)> {
         // returns a new var_memo
         let mut current_var_memo = var_memo;
+        let varpat = "?a".parse::<PatternAst<L>>().unwrap();
 
         let mut sast = match &connection.rule_ref {
             RuleReference::Index(i) => rules[*i]
@@ -993,6 +717,7 @@ impl<L: Language> History<L> {
                 .get_ast()
                 .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
             RuleReference::Pattern((left, _right, _reaon)) => &left,
+            RuleReference::Congruence => &varpat
         };
 
         let mut rast = match &connection.rule_ref {
@@ -1001,6 +726,7 @@ impl<L: Language> History<L> {
                 .get_ast()
                 .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
             RuleReference::Pattern((_left, right, _reaon)) => right,
+            RuleReference::Congruence => &varpat
         };
 
         if !connection.is_direction_forward {

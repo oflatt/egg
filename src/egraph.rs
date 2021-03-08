@@ -8,7 +8,7 @@ use log::*;
 
 use crate::{
     Analysis, Applications, AstSize, Dot, EClass, Extractor, History, Id, Language, Pattern,
-    PatternAst, Proof, RecExpr, Rewrite, Searcher, Subst, UnionFind,
+    PatternAst, Proof, RecExpr, Rewrite, Searcher, Subst, UnionFind, 
 };
 
 /** A data structure to keep track of equalities between expressions.
@@ -290,9 +290,12 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             });
 
             self.classes.insert(id, class);
-            assert!(self.memo.insert(enode, id).is_none());
+            assert!(self.memo.insert(enode.clone(), id).is_none());
+
+            self.history.add_new_node(enode);
 
             N::modify(self, id);
+
             id
         })
     }
@@ -355,7 +358,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         if id1 != id2 {
             N::pre_union(self, id1, id2);
         }
-
+        
         let (to, from) = self.unionfind.union(id1, id2);
         debug_assert_eq!(to, self.find(id1));
         debug_assert_eq!(to, self.find(id2));
@@ -489,6 +492,12 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         }
 
         self.classes_by_op = classes_by_op;
+
+        let mut hist = Default::default();
+        std::mem::swap(&mut self.history, &mut hist);
+        hist.rebuild(&self);
+        std::mem::swap(&mut self.history, &mut hist);
+
         trimmed
     }
 
@@ -529,6 +538,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     #[inline(never)]
     fn process_unions(&mut self) {
         let mut to_union = vec![];
+        let mut old_versions: HashMap<L, L> = Default::default();
 
         while !self.dirty_unions.is_empty() {
             // take the worklist, we'll get the stuff that's added the next time around
@@ -550,20 +560,28 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 }
 
                 parents.iter_mut().for_each(|(n, id)| {
+                    let old = n.clone();
                     n.update_children(|child| self.find(child));
+                    if &old != n {
+                        old_versions.insert(n.clone(), old);
+                    }
                     *id = self.find(*id);
                 });
                 parents.sort_unstable();
                 parents.dedup_by(|(n1, e1), (n2, e2)| {
                     n1 == n2 && {
-                        to_union.push((*e1, *e2));
+                        let left: L = old_versions.get(n1).unwrap_or(n1).clone();
+                        let right: L = old_versions.get(n2).unwrap_or(n2).clone();
+                        to_union.push(((left, *e1), (right, *e2)));
                         true
                     }
                 });
 
                 for (n, e) in &parents {
                     if let Some(old) = self.memo.insert(n.clone(), *e) {
-                        to_union.push((old, *e));
+                        let left = n.clone();
+                        let right = old_versions.get(n).unwrap().clone();
+                        to_union.push(((left, old), (right, *e)));
                     }
                 }
 
@@ -573,7 +591,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 N::modify(self, id);
             }
 
-            for (id1, id2) in to_union.drain(..) {
+            for ((left, id1), (right, id2)) in to_union.drain(..) {
+                self.history.union(left, right);
                 let (to, did_something) = self.union_impl(id1, id2);
                 if did_something {
                     self.dirty_unions.push(to);

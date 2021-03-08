@@ -347,12 +347,6 @@ where
             }
         }
 
-        // swap around so we can pass egraph into hist
-        let mut hist = Default::default();
-        std::mem::swap(&mut self.egraph.history, &mut hist);
-        hist.rebuild::<N>(&self.egraph, &rules);
-        std::mem::swap(&mut self.egraph.history, &mut hist);
-
         assert!(!self.iterations.is_empty());
         assert!(self.stop_reason.is_some());
         self

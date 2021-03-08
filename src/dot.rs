@@ -221,9 +221,9 @@ where
                 })?;
             }
         }
-
+/*
         let hist = &self.egraph.history;
-
+        
         for (node, connections) in &hist.graph {
             for connection in connections {
                 if connection.is_direction_forward {
@@ -245,7 +245,7 @@ where
                     }
                 }
             }
-        }
+        }*/
 
         write!(f, "}}")
     }
