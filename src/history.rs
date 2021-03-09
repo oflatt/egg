@@ -313,7 +313,7 @@ impl<L: Language> NodeExpr<L> {
 pub struct History<L: Language> {
     // connects nodes in the same eclass to each other, forming a tree for each eclass
     pub graph: Vec<GraphNode<L>>,
-    memo: HashMap<L, usize>
+    memo: HashMap<Id, usize>
 }
 
 impl<L: Language> Default for History<L> {
@@ -327,16 +327,41 @@ impl<L: Language> Default for History<L> {
 
 
 impl<L: Language> History<L> {
+    fn find_enode_in<N: Analysis>(enode: &L, class: Id, egraph: &EGraph<L, N>) {
+        let seen: Set<usize> = Default::default;
+        let mut todo: VecDeque<usize> = VecDeque::new();
+        todo.push_back(self.memo.get(class).unwrap());
+
+        while(true) {
+            assert!(todo.len() > 0);
+            let current = todo.pop_front();
+            if seen.contains(current) {
+                continue;
+            }
+            seen.insert(current);
+            if &self.graph[current.node].clone().map_children(|id| egraph.find(id)) == enode {
+                return current;
+            } else {
+                for child in self.graph[current].children {
+                    todo.push_back(child.index);
+                }
+            }
+        }
+    }
+
     // from and to must be from different eclasses
-    fn add_connection(
+    fn add_connection<N: Analysis>(
         &mut self,
         from: L,
         to: L,
+        fromid: Id,
+        toid: Id,
         rule: RuleReference<L>,
         subst: Subst,
+        egraph: &EGraph<L, N>,
     ) {
-        let currentfrom = *self.memo.get(&from).unwrap();
-        let currentto = *self.memo.get(&to).unwrap();
+        let currentfrom = find_enode_in(from, fromid, egraph);
+        let currentto = find_enode_in(to, toid, egraph);
         
         let fromr = RewriteConnection {
             index: currentto,
@@ -356,32 +381,45 @@ impl<L: Language> History<L> {
         self.graph[currentto].children.push(tor);
     }
 
-    pub fn union(&mut self, from: L, to: L) {
-        self.add_connection(from, to, RuleReference::Congruence, Default::default());
+    pub fn union<N: Analysis>(&mut self, from: L, to: L, fromid: Id, toid: Id, egraph: &EGraph<L, N>) {
+        //println!("union {}, {}", enode_to_string(&from), enode_to_string(&to));
+        self.add_connection(from, to, fromid, toid, RuleReference::Congruence, Default::default(), egraph);
     }
 
-    pub fn add_new_node(&mut self, node: L) {
+    pub fn add_new_node(&mut self, node: L, id: Id) {
+        //println!("add new node {}", enode_to_string(&node));
         self.graph.push(GraphNode { node: node.clone(), children: Default::default()});
-        self.memo.insert(node, self.graph.len()-1);
+        self.memo.insert(id, self.graph.len()-1);
     }
 
     pub(crate) fn add_union_proof<N: Analysis<L>>(
         &mut self,
         egraph: &mut EGraph<L, N>,
-        eclass: Id,
         from: PatternAst<L>,
         to: PatternAst<L>,
+        fromid: Id,
+        toid: Id,
         subst: Subst,
         reason: String,
     ) {
+        //println!("union proof");
         let from_node = NodeExpr::from_pattern_ast(egraph, &from, &subst, None, None).0;
         let to_node = NodeExpr::from_pattern_ast(egraph, &to, &subst, None, None).0;
         self.add_connection(
             from_node.node.as_ref().unwrap().clone(),
             to_node.node.unwrap(),
+            fromid,
+            toid,
             RuleReference::Pattern((from, to, reason)),
             subst,
+            egraph
         );
+    }
+
+    pub fn update_node(&mut self, from: L, to: L) {
+        if let Some(index) = self.memo.get(&from) {
+            self.memo.insert(to, *index);
+        }
     }
 
     pub(crate) fn add_applications<N: Analysis<L>>(
@@ -396,10 +434,13 @@ impl<L: Language> History<L> {
             applications.substs,
             applications.affected_classes
         ) {
-            let mut from_clone = from.clone();
+            let cfrom = from.clone().map_children(|child| egraph.find(child));
+            let cto = to.clone().map_children(|child| egraph.find(child));
+            //println!("application {}, {}", enode_to_string(&from), enode_to_string(&to));
+            //println!("application {}, {}", enode_to_string(&cfrom), enode_to_string(&cto));
             self.add_connection(
-                from,
-                to,
+                cfrom,
+                cto,
                 RuleReference::Index(rule),
                 subst,
             );
@@ -441,6 +482,7 @@ impl<L: Language> History<L> {
         &mut self,
         egraph: &EGraph<L, N>,
     ) {
+        //println!("rebuilding");
         let mut newmemo: HashMap<L, usize> = Default::default();
         for (node, index) in self.memo.iter() {
             newmemo.insert(node.clone().map_children(|child| egraph.find(child)), *index);
@@ -459,7 +501,7 @@ impl<L: Language> History<L> {
         left: &RecExpr<L>,
         right: &RecExpr<L>,
     ) -> Option<Proof<L>> {
-        println!("Produce proof!");
+        //println!("Produce proof!");
         if egraph.add_expr(&left) != egraph.add_expr(&right) {
             println!("Expressions are not from same eclass!");
             return None;
@@ -584,9 +626,11 @@ impl<L: Language> History<L> {
         let mut end = initial;
         prev.insert(initial, initial);
         todo.push_back(initial);
+        println!("Destination node is {}", enode_to_string(right.node.as_ref().unwrap()));
         while(true) {
             assert!(todo.len() > 0);
             let current = todo.pop_front().unwrap();
+            println!("Current node is {}", enode_to_string(&self.graph[current].node));
             if &self.graph[current].node == right.node.as_ref().unwrap() {
                 end = current;
                 break;

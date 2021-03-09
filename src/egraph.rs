@@ -367,11 +367,15 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
             // update the classes data structure
             let from_class = self.classes.remove(&from).unwrap();
-            let to_class = self.classes.get_mut(&to).unwrap();
 
-            self.analysis.merge(&mut to_class.data, from_class.data);
-            concat(&mut to_class.nodes, from_class.nodes);
-            concat(&mut to_class.parents, from_class.parents);
+            self.analysis.merge(&mut self.classes.get_mut(&to).unwrap().data, from_class.data);
+            concat(&mut self.classes.get_mut(&to).unwrap().nodes, from_class.nodes);
+            concat(&mut self.classes.get_mut(&to).unwrap().parents, from_class.parents);
+
+            let mut hist = Default::default();
+            std::mem::swap(&mut self.history, &mut hist);
+            hist.rebuild(&self);
+            std::mem::swap(&mut self.history, &mut hist);
 
             N::modify(self, to);
         }
@@ -493,11 +497,6 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
         self.classes_by_op = classes_by_op;
 
-        let mut hist = Default::default();
-        std::mem::swap(&mut self.history, &mut hist);
-        hist.rebuild(&self);
-        std::mem::swap(&mut self.history, &mut hist);
-
         trimmed
     }
 
@@ -592,7 +591,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             }
 
             for ((left, id1), (right, id2)) in to_union.drain(..) {
-                self.history.union(left, right);
+                self.history.union(left.clone().map_children(|id| self.find(id)), right.clone().map_children(|id| self.find(id)));
                 let (to, did_something) = self.union_impl(id1, id2);
                 if did_something {
                     self.dirty_unions.push(to);
@@ -648,6 +647,11 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         let n_unions = std::mem::take(&mut self.repairs_since_rebuild);
         let trimmed_nodes = self.rebuild_classes();
 
+        let mut hist = Default::default();
+        std::mem::swap(&mut self.history, &mut hist);
+        hist.rebuild(&self);
+        std::mem::swap(&mut self.history, &mut hist);
+
         let elapsed = start.elapsed();
         info!(
             concat!(
@@ -667,6 +671,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         );
 
         debug_assert!(self.check_memo());
+        
         n_unions
     }
 

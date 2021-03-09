@@ -450,18 +450,22 @@ egg::test_fn! {
         //r.egraph.dot().to_png("target/newegraph.png").unwrap();
         check_proof(&mut r, rules(), "(+ 1 (- a (* (- 2 1) a)))",
                                     "1",
-                    Some(vec!["(+ 1 (- a (=> (* (- 2 1) a))))",
-                    "comm-mul =>",
-                    "(+ 1 (- a (* a (=> (- 2 1)))))",
-                    "metadata-eval =>",
-                    "(+ 1 (- a (* a 1)))",
-                    "<= mul-one",
-                    "(+ 1 (=> (- a (<= a))))",
-                    "cancel-sub =>",
-                    "(=> (+ 1 0))",
-                    "metadata-eval =>", "1"]));
+                                    Some(vec!["(=> (+ 1 (- a (* (- 2 1) a))))",
+                                    "comm-add =>",
+                                    "(+ (- a (=> (* (- 2 1) a))) 1)",
+                                    "comm-mul =>",
+                                    "(+ (- a (* a (=> (- 2 1)))) 1)",
+                                    "metadata-eval =>",
+                                    "(+ (- a (* a 1)) 1)",
+                                    "<= mul-one",
+                                    "(+ (=> (- a (<= a))) 1)",
+                                    "cancel-sub =>",
+                                    "(=> (+ 0 1))",
+                                    "metadata-eval =>", "1"])
+                                    );
     }
 }
+
 
 egg::test_fn! {
     math_prove_simplify_const_backwards, rules(),
@@ -498,6 +502,7 @@ egg::test_fn! {
         check_proof_exists(&mut r, rules(), "(* (d x x) (i (cos x) x))", "(sin x)");
     }
 }
+
 
 egg::test_fn! {
     math_prove_integ_part2, rules(),

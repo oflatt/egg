@@ -52,11 +52,9 @@ impl UnionFind {
 
             current = parent;
             // do path halving and proceed
-            /*
             let grandparent = self.parent(parent);
             self.set_parent(current, grandparent);
             current = grandparent;
-            */
         }
     }
 

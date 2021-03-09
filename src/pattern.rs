@@ -249,6 +249,7 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
 pub struct Applications<L> {
     pub from_nodes: Vec<L>,
     pub affected_classes: Vec<Id>,
+    pub from_classes: Vec<Id>,
     pub to_nodes: Vec<L>,
     pub substs: Vec<Subst>,
 }
