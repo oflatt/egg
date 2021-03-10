@@ -8,7 +8,7 @@ use log::*;
 
 use crate::{
     Analysis, Applications, AstSize, Dot, EClass, Extractor, History, Id, Language, Pattern,
-    PatternAst, Proof, RecExpr, Rewrite, Searcher, Subst, UnionFind, 
+    PatternAst, Proof, RecExpr, Rewrite, Searcher, Subst, UnionFind,
 };
 
 /** A data structure to keep track of equalities between expressions.
@@ -292,7 +292,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             self.classes.insert(id, class);
             assert!(self.memo.insert(enode.clone(), id).is_none());
 
-            self.history.add_new_node(enode);
+            self.history.add_new_node(enode, id);
 
             N::modify(self, id);
 
@@ -358,7 +358,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         if id1 != id2 {
             N::pre_union(self, id1, id2);
         }
-        
+
         let (to, from) = self.unionfind.union(id1, id2);
         debug_assert_eq!(to, self.find(id1));
         debug_assert_eq!(to, self.find(id2));
@@ -368,14 +368,18 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             // update the classes data structure
             let from_class = self.classes.remove(&from).unwrap();
 
-            self.analysis.merge(&mut self.classes.get_mut(&to).unwrap().data, from_class.data);
-            concat(&mut self.classes.get_mut(&to).unwrap().nodes, from_class.nodes);
-            concat(&mut self.classes.get_mut(&to).unwrap().parents, from_class.parents);
-
-            let mut hist = Default::default();
-            std::mem::swap(&mut self.history, &mut hist);
-            hist.rebuild(&self);
-            std::mem::swap(&mut self.history, &mut hist);
+            self.analysis.merge(
+                &mut self.classes.get_mut(&to).unwrap().data,
+                from_class.data,
+            );
+            concat(
+                &mut self.classes.get_mut(&to).unwrap().nodes,
+                from_class.nodes,
+            );
+            concat(
+                &mut self.classes.get_mut(&to).unwrap().parents,
+                from_class.parents,
+            );
 
             N::modify(self, to);
         }
@@ -424,6 +428,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
     pub fn add_union_proof(
         &mut self,
+        fromclass: Id,
         eclass: Id,
         from: PatternAst<L>,
         to: PatternAst<L>,
@@ -432,7 +437,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     ) {
         let mut hist = Default::default();
         std::mem::swap(&mut self.history, &mut hist);
-        hist.add_union_proof(self, eclass, from, to, subst, reason);
+        hist.add_union_proof(self, from, to, fromclass, eclass, subst, reason);
         std::mem::swap(&mut self.history, &mut hist);
     }
 
@@ -591,7 +596,11 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             }
 
             for ((left, id1), (right, id2)) in to_union.drain(..) {
-                self.history.union(left.clone().map_children(|id| self.find(id)), right.clone().map_children(|id| self.find(id)));
+                let mut hist = Default::default();
+                std::mem::swap(&mut self.history, &mut hist);
+                hist.union(left, right, id1, id2, &self);
+                std::mem::swap(&mut self.history, &mut hist);
+
                 let (to, did_something) = self.union_impl(id1, id2);
                 if did_something {
                     self.dirty_unions.push(to);
@@ -671,7 +680,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         );
 
         debug_assert!(self.check_memo());
-        
+
         n_unions
     }
 

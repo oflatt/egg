@@ -266,16 +266,18 @@ where
     fn apply_one(
         &self,
         egraph: &mut EGraph<L, A>,
-        _: Id,
+        matched_id: Id,
         subst: &Subst,
         top_node: L,
     ) -> Applications<L> {
         let ast = self.ast.as_ref();
         let mut id_buf = vec![0.into(); ast.len()];
         let (id, top_enode) = apply_pat(&mut id_buf, ast, egraph, subst);
+        println!("here app_one");
         Applications {
             from_nodes: vec![top_node],
             affected_classes: vec![id],
+            from_classes: vec![matched_id],
             to_nodes: vec![top_enode],
             substs: vec![subst.clone()],
         }
@@ -292,6 +294,7 @@ where
     ) -> Applications<L> {
         let mut affected_classes = vec![];
         let mut from_nodes = vec![];
+        let mut from_classes = vec![];
         let mut to_nodes = vec![];
         let mut substs = vec![];
         let ast = self.ast.as_ref();
@@ -301,18 +304,21 @@ where
                 let (id, top_enode) = apply_pat(&mut id_buf, ast, egraph, subst);
                 let (to, did_something) = egraph.union(id, mat.eclass);
                 if did_something {
-                    affected_classes.push(to);
+                    affected_classes.push(id);
                     from_nodes.push(from_enode.clone());
                     to_nodes.push(top_enode.clone());
                     substs.push(subst.clone());
+                    from_classes.push(mat.eclass);
                 }
             }
         }
+        println!("here");
         Applications {
             from_nodes,
             affected_classes,
             to_nodes,
             substs,
+            from_classes,
         }
     }
 }

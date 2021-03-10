@@ -86,16 +86,18 @@ impl Analysis<Math> for ConstantFold {
         ))
     }
 
-    fn modify(egraph: &mut EGraph, id: Id) {
-        let class = &mut egraph[id];
+    fn modify(egraph: &mut EGraph, class_id: Id) {
+        let class = &mut egraph[class_id];
         if let Some((c, node)) = class.data.clone() {
             let added = egraph.add(Math::Constant(c));
-            let (id, did_something) = egraph.union(id, added);
+            let (id, did_something) = egraph.union(class_id, added);
             if did_something {
                 let mut const_pattern: PatternAst<Math> = Default::default();
                 const_pattern.add(ENodeOrVar::ENode(Math::Constant(c)));
+                println!("using ids {} and {}", added, class_id);
                 egraph.add_union_proof(
-                    id,
+                    class_id,
+                    added,
                     node,
                     const_pattern,
                     Default::default(),
@@ -450,22 +452,19 @@ egg::test_fn! {
         //r.egraph.dot().to_png("target/newegraph.png").unwrap();
         check_proof(&mut r, rules(), "(+ 1 (- a (* (- 2 1) a)))",
                                     "1",
-                                    Some(vec!["(=> (+ 1 (- a (* (- 2 1) a))))",
-                                    "comm-add =>",
-                                    "(+ (- a (=> (* (- 2 1) a))) 1)",
-                                    "comm-mul =>",
-                                    "(+ (- a (* a (=> (- 2 1)))) 1)",
-                                    "metadata-eval =>",
-                                    "(+ (- a (* a 1)) 1)",
-                                    "<= mul-one",
-                                    "(+ (=> (- a (<= a))) 1)",
-                                    "cancel-sub =>",
-                                    "(=> (+ 0 1))",
-                                    "metadata-eval =>", "1"])
-                                    );
+                                    Some(vec!["(+ 1 (- a (=> (* (- 2 1) a))))",
+                                          "comm-mul =>",
+                                          "(+ 1 (- a (* a (=> (- 2 1)))))",
+                                          "metadata-eval =>",
+                                          "(+ 1 (- a (* a 1)))",
+                                          "<= mul-one",
+                                          "(+ 1 (=> (- a (<= a))))",
+                                          "cancel-sub =>",
+                                          "(=> (+ 1 0))",
+                                          "metadata-eval =>",
+                                          "1"]));
     }
 }
-
 
 egg::test_fn! {
     math_prove_simplify_const_backwards, rules(),
@@ -503,7 +502,6 @@ egg::test_fn! {
     }
 }
 
-
 egg::test_fn! {
     math_prove_integ_part2, rules(),
     runner = Runner::default()
@@ -521,17 +519,6 @@ egg::test_fn! {
     "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
     @check |mut r: Runner<Math, ConstantFold>| {
         check_proof_exists(&mut r, rules(), "(* x (i (cos x) x))", "(* x (sin x))");
-    }
-
-}
-
-egg::test_fn! {
-    math_prove_integ_part2_harder_2, rules(),
-    runner = Runner::default()
-             .with_iter_limit(5),
-    "(i (* (cos x) x) x)" => "(+ (* x (sin x)) (cos x))"
-    @check |mut r: Runner<Math, ConstantFold>| {
-        check_proof(&mut r, rules(), "(* -1 (i (* (d x x) (i (cos x) x)) x))", "(cos x)",None);
     }
 
 }

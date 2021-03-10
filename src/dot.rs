@@ -223,7 +223,7 @@ where
         }
 
         let hist = &self.egraph.history;
-        
+
         for graphnode in &hist.graph {
             for connection in &graphnode.children {
                 if connection.is_direction_forward {
@@ -235,8 +235,7 @@ where
                         println!("   in class: {}", enode_to_string(n));
                     }*/
                     let i_in_class_o = self.egraph[id1].iter().position(|n| n == &graphnode.node);
-                    let i_in_class_2_o =
-                        self.egraph[id2].iter().position(|n| n == othernode);
+                    let i_in_class_2_o = self.egraph[id2].iter().position(|n| n == othernode);
                     if let (Some(i_in_class), Some(i_in_class_2)) = (i_in_class_o, i_in_class_2_o) {
                         writeln!(
                             f,

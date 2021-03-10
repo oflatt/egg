@@ -282,25 +282,29 @@ where
         let mut from_nodes = vec![];
         let mut to_nodes = vec![];
         let mut substs = vec![];
+        let mut from_classes = vec![];
         for mat in matches {
             for (subst, top_node) in mat.substs.iter().zip(&mat.enodes) {
                 let applied = self.apply_one(egraph, mat.eclass, subst, top_node.clone());
                 for i in 0..applied.affected_classes.len() {
                     let (to, did_something) = egraph.union(applied.affected_classes[i], mat.eclass);
                     if did_something {
-                        affected_classes.push(to);
+                        affected_classes.push(applied.affected_classes[i]);
                         from_nodes.push(applied.from_nodes[i].clone());
                         to_nodes.push(applied.to_nodes[i].clone());
                         substs.push(subst.clone());
+                        from_classes.push(mat.eclass);
                     }
                 }
             }
         }
+        println!("here matches r");
         Applications {
             from_nodes,
             affected_classes,
             to_nodes,
             substs,
+            from_classes,
         }
     }
 
@@ -386,11 +390,13 @@ where
         {
             self.applier.apply_one(egraph, eclass, subst, top_node)
         } else {
+            println!("here one app");
             Applications {
                 affected_classes: vec![],
                 from_nodes: vec![],
                 to_nodes: vec![],
                 substs: vec![],
+                from_classes: vec![],
             }
         }
     }
@@ -559,6 +565,7 @@ mod tests {
                     affected_classes: vec![egraph.add(S::leaf(&s))],
                     to_nodes: vec![top_node],
                     substs: vec![subst.clone()],
+                    from_classes: vec![egraph.add(S::leaf(&s))],
                 } // bogus
             }
         }
