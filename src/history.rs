@@ -29,6 +29,7 @@ pub struct RewriteConnection<L: Language> {
     subst: Subst,
     pub is_direction_forward: bool,
     rule_ref: RuleReference<L>,
+    age: usize,
 }
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -313,6 +314,7 @@ pub struct History<L: Language> {
     // connects nodes in the same eclass to each other, forming a tree for each eclass
     pub graph: Vec<GraphNode<L>>,
     memo: HashMap<Id, usize>,
+    age_counter: usize,
 }
 
 impl<L: Language> Default for History<L> {
@@ -320,6 +322,7 @@ impl<L: Language> Default for History<L> {
         History::<L> {
             graph: Default::default(),
             memo: Default::default(),
+            age_counter: 1,
         }
     }
 }
@@ -374,6 +377,7 @@ impl<L: Language> History<L> {
             subst: subst.clone(),
             is_direction_forward: true,
             rule_ref: rule.clone(),
+            age: self.age_counter,
         };
 
         let tor = RewriteConnection {
@@ -381,10 +385,12 @@ impl<L: Language> History<L> {
             subst: subst.clone(),
             is_direction_forward: false,
             rule_ref: rule.clone(),
+            age: self.age_counter,
         };
 
         self.graph[currentfrom].children.push(fromr);
         self.graph[currentto].children.push(tor);
+        self.age_counter += 1;
     }
 
     pub fn union<N: Analysis<L>>(
@@ -545,6 +551,117 @@ impl<L: Language> History<L> {
         }
     }
 
+    fn find_leaf_node(&self, start: usize) -> usize {
+        let mut seen: HashSet<usize> = Default::default();
+        let mut todo = start;
+        seen.insert(todo);
+        while (true) {
+            let current = todo;
+            if self.graph[current].children.len() == 1 {
+                return current;
+            } else {
+                for child in &self.graph[current].children {
+                    if !seen.contains(&child.index) {
+                        todo = child.index;
+                        break;
+                    }
+                }
+                if(todo == current) {
+                    return current;
+                }
+                seen.insert(current);
+            }
+        }
+        assert!(false);
+        return 0;
+    }
+
+    fn find_youngest_recursive<'a>(
+        &'a self,
+        current: usize,
+        left: &Rc<NodeExpr<L>>,
+        right: &Rc<NodeExpr<L>>,
+        mut has_found_left: bool,
+        mut has_found_right: bool,
+        mut last_found_left_index: usize,
+        mut last_found_right_index: usize,
+        mut last_found_left_age: usize,
+        mut last_found_right_age: usize,
+        prev: &mut HashMap<usize, usize>,
+        prevc: &mut HashMap<usize, &'a RewriteConnection<L>>
+    ) -> (usize, usize) {
+        let mut best = (0, usize::MAX);
+        if &self.graph[current].node == right.node.as_ref().unwrap() || &self.graph[current].node == left.node.as_ref().unwrap() {
+            let isleft = &self.graph[current].node == left.node.as_ref().unwrap();
+            if isleft {
+                has_found_left = true;
+                last_found_left_index = current;
+                last_found_left_age = 0;
+                if has_found_right {
+                    best = (current, last_found_right_age);
+                }
+            } else {
+                has_found_right = true;
+                last_found_right_index = current;
+                last_found_right_age = 0;
+                if has_found_left {
+                    best = (current, last_found_left_age);
+                }
+            }
+        }
+
+        for child in &self.graph[current].children {
+            if prev.get(&child.index) == None {
+                prev.insert(child.index, current);
+                prevc.insert(child.index, &child);
+                let rec = self.find_youngest_recursive(child.index, left, right,
+                    has_found_left, has_found_right, last_found_left_index, last_found_right_index,
+                    usize::max(child.age, last_found_left_age), usize::max(child.age, last_found_right_age), prev, prevc);
+                if rec.1 < best.1 {
+                    best = rec;
+                }
+            }
+        }
+        best
+    }
+
+    fn find_youngest_proof_path<N: Analysis<L>>(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        left: &Rc<NodeExpr<L>>,
+        right: &Rc<NodeExpr<L>>,
+    ) -> (Vec<&RewriteConnection<L>>, bool) {
+        if left.node.as_ref() == right.node.as_ref() {
+            return (vec![], false);
+        }
+
+        let mut prev: HashMap<usize, usize> = Default::default();
+        let mut prevc: HashMap<usize, &RewriteConnection<L>> = Default::default();
+        let class = egraph.lookup(left.node.as_ref().unwrap().clone()).unwrap();
+        let representative = self.find_leaf_node(*self.memo.get(&class).unwrap());
+        prev.insert(representative, representative);
+        println!("Calling once");
+        let (end, age) = self.find_youngest_recursive(representative, left, right, false, false, 0, 0, 0, 0, &mut prev, &mut prevc);
+        assert!(age < usize::MAX);
+
+        let mut path: Vec<&RewriteConnection<L>> = Default::default();
+        let mut is_backwards = &self.graph[end].node == right.node.as_ref().unwrap();
+        let mut trail = end;
+        while (true) {
+            let p = prev[&trail];
+            assert!(trail != p);
+            path.push(prevc.get(&trail).unwrap());
+            trail = p;
+            if &self.graph[trail].node == left.node.as_ref().unwrap() || &self.graph[trail].node == right.node.as_ref().unwrap() {
+                break;
+            }
+        }
+        if is_backwards {
+            path.reverse();
+        }
+        return (path, !is_backwards);
+    }
+
     // find a sequence of rewrites between two enodes
     // fuel determines the maximum number of backtracks before giving up
     fn find_proof_paths<N: Analysis<L>>(
@@ -558,6 +675,7 @@ impl<L: Language> History<L> {
         result_fail_cache: &mut ResultFailCache<L>,
         fuel_in: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
+        println!("Prove {} and {}", left_input.to_string(), right_input.to_string());
         // cost of this function
         let fuel = fuel_in;
 
@@ -614,44 +732,10 @@ impl<L: Language> History<L> {
             egraph.lookup(right.node.as_ref().unwrap().clone())
         );
 
-        let mut todo: VecDeque<usize> = VecDeque::new();
-        let mut prev: HashMap<usize, usize> = Default::default();
-        let mut prevc: HashMap<usize, &RewriteConnection<L>> = Default::default();
-        let initial = self.find_enode_in(
-            left.node.as_ref().unwrap(),
-            egraph.lookup(left.node.as_ref().unwrap().clone()).unwrap(),
-            egraph,
-        );
-        let mut end = initial;
-        prev.insert(initial, initial);
-        todo.push_back(initial);
-        while (true) {
-            assert!(todo.len() > 0);
-            let current = todo.pop_front().unwrap();
-            if &self.graph[current].node == right.node.as_ref().unwrap() {
-                end = current;
-                break;
-            }
-
-            for child in &self.graph[current].children {
-                if prev.get(&child.index) == None {
-                    prev.insert(child.index, current);
-                    prevc.insert(child.index, &child);
-                    todo.push_back(child.index);
-                }
-            }
-        }
-
-        let mut path: Vec<&RewriteConnection<L>> = Default::default();
-        let mut trail = end;
-        while (trail != initial) {
-            let p = prev[&trail];
-            path.push(prevc.get(&trail).unwrap());
-            trail = p;
-        }
+        let (path, is_backwards) = self.find_youngest_proof_path(egraph, &left, &right);
         let mut proof = vec![left.clone()];
         for i in 0..path.len() {
-            let connection = path[path.len() - 1 - i];
+            let connection = path[i];
             let recent = proof.pop().unwrap();
             if let Some((subproof, vmemo)) = self.prove_one_step(
                 egraph,
@@ -662,6 +746,7 @@ impl<L: Language> History<L> {
                 new_seen_memo.clone(),
                 result_fail_cache,
                 fuel,
+                is_backwards
             ) {
                 current_var_memo = vmemo;
                 proof.extend(subproof);
@@ -753,6 +838,7 @@ impl<L: Language> History<L> {
         seen_memo: SeenMemo<L>,
         result_fail_cache: &mut ResultFailCache<L>,
         fuel: usize,
+        is_backwards: bool,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, Vector<Rc<NodeExpr<L>>>)> {
         // returns a new var_memo
         let mut current_var_memo = var_memo;
@@ -776,9 +862,15 @@ impl<L: Language> History<L> {
             RuleReference::Congruence => return Some((vec![left], current_var_memo)),
         };
 
-        if !connection.is_direction_forward {
-            std::mem::swap(&mut sast, &mut rast);
+        let mut direction = connection.is_direction_forward;
+        if is_backwards {
+            direction = !direction;
         }
+        if !direction {
+            std::mem::swap(&mut sast, &mut rast);            
+        }
+
+        println!("Rule {} to {}", sast, rast);
 
         let (search_pattern, first_var_memo) = NodeExpr::from_pattern_ast::<N>(
             egraph,
@@ -812,16 +904,13 @@ impl<L: Language> History<L> {
         current_var_memo = third_var_memo;
         let mut newlink = unwrap_or_clone(latest);
         newlink.rule_ref = connection.rule_ref.clone();
-        newlink.is_direction_forward = connection.is_direction_forward;
-        if connection.is_direction_forward {
+        newlink.is_direction_forward = direction;
+        if direction {
             newlink.is_rewritten_forward = true;
+            next.is_rewritten_backwards = false;
         } else {
             newlink.is_rewritten_forward = false;
-        }
-        if !connection.is_direction_forward {
             next.is_rewritten_backwards = true;
-        } else {
-            next.is_rewritten_backwards = false;
         }
         proof.push(Rc::new(newlink));
         proof.push(Rc::new(next));
