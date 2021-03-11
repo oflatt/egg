@@ -486,7 +486,6 @@ where
         left: &RecExpr<L>,
         right: &RecExpr<L>,
     ) -> Option<Proof<L>> {
-        println!("Producing proof");
         self.egraph.produce_proof(rules, left, right)
     }
 

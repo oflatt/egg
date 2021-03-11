@@ -273,7 +273,6 @@ where
         let ast = self.ast.as_ref();
         let mut id_buf = vec![0.into(); ast.len()];
         let (id, top_enode) = apply_pat(&mut id_buf, ast, egraph, subst);
-        println!("here app_one");
         Applications {
             from_nodes: vec![top_node],
             affected_classes: vec![id],
@@ -312,7 +311,6 @@ where
                 }
             }
         }
-        println!("here");
         Applications {
             from_nodes,
             affected_classes,

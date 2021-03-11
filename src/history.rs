@@ -340,7 +340,6 @@ impl<L: Language> History<L> {
             if seen.contains(&current) {
                 continue;
             }
-            println!("searching {}", enode_to_string(&cnode));
             seen.insert(current);
             if &cnode == enode {
                 return current;
@@ -367,13 +366,6 @@ impl<L: Language> History<L> {
     ) {
         let cfrom = from.clone().map_children(|id| egraph.find(id));
         let cto = to.clone().map_children(|id| egraph.find(id));
-        println!(
-            "Adding connection between {} and {} with {} and {}",
-            fromid,
-            toid,
-            enode_to_string(&cfrom),
-            enode_to_string(&cto)
-        );
         let currentfrom = self.find_enode_in(&cfrom, fromid, egraph);
         let currentto = self.find_enode_in(&cto, toid, egraph);
 
@@ -403,7 +395,6 @@ impl<L: Language> History<L> {
         toid: Id,
         egraph: &EGraph<L, N>,
     ) {
-        println!("union {}, {}", enode_to_string(&from), enode_to_string(&to));
         self.add_connection(
             from,
             to,
@@ -416,7 +407,6 @@ impl<L: Language> History<L> {
     }
 
     pub fn add_new_node(&mut self, node: L, id: Id) {
-        println!("add new node {}", enode_to_string(&node));
         self.graph.push(GraphNode {
             node: node.clone(),
             children: Default::default(),
@@ -434,7 +424,6 @@ impl<L: Language> History<L> {
         subst: Subst,
         reason: String,
     ) {
-        println!("union proof");
         let from_node = NodeExpr::from_pattern_ast(egraph, &from, &subst, None, None).0;
         let to_node = NodeExpr::from_pattern_ast(egraph, &to, &subst, None, None).0;
         self.add_connection(
@@ -463,11 +452,6 @@ impl<L: Language> History<L> {
         ) {
             let cfrom = from.clone().map_children(|child| egraph.find(child));
             let cto = to.clone().map_children(|child| egraph.find(child));
-            println!(
-                "application {}, {}",
-                enode_to_string(&cfrom),
-                enode_to_string(&cto)
-            );
             self.add_connection(
                 cfrom,
                 cto,
@@ -512,7 +496,6 @@ impl<L: Language> History<L> {
 
     // updates memo to use cannonical references
     pub(crate) fn rebuild<N: Analysis<L>>(&mut self, egraph: &EGraph<L, N>) {
-        println!("rebuilding");
         for graphnode in self.graph.iter_mut() {
             graphnode.node = graphnode
                 .node
@@ -528,9 +511,7 @@ impl<L: Language> History<L> {
         left: &RecExpr<L>,
         right: &RecExpr<L>,
     ) -> Option<Proof<L>> {
-        println!("Produce proof!");
         if egraph.add_expr(&left) != egraph.add_expr(&right) {
-            println!("Expressions are not from same eclass!");
             return None;
         } else {
             let lg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, left));
@@ -557,10 +538,7 @@ impl<L: Language> History<L> {
                 );
                 fuel += 1;
                 if r != None {
-                    println!("FOUND at fuel: {}", fuel);
                     return Some(r.unwrap().0);
-                } else {
-                    println!("Raising fuel! New fuel: {}", fuel);
                 }
             }
             return None;
@@ -580,16 +558,6 @@ impl<L: Language> History<L> {
         result_fail_cache: &mut ResultFailCache<L>,
         fuel_in: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
-        println!(
-            "Proving: {} and {}",
-            left_input.to_string(),
-            right_input.to_string()
-        );
-        println!("fuel: {}", fuel_in);
-        if fuel_in <= 1 {
-            println!("Out of fuel");
-            return None;
-        }
         // cost of this function
         let fuel = fuel_in;
 
@@ -657,17 +625,9 @@ impl<L: Language> History<L> {
         let mut end = initial;
         prev.insert(initial, initial);
         todo.push_back(initial);
-        println!(
-            "Destination node is {}",
-            enode_to_string(right.node.as_ref().unwrap())
-        );
         while (true) {
             assert!(todo.len() > 0);
             let current = todo.pop_front().unwrap();
-            println!(
-                "Current node is {}",
-                enode_to_string(&self.graph[current].node)
-            );
             if &self.graph[current].node == right.node.as_ref().unwrap() {
                 end = current;
                 break;
@@ -820,8 +780,6 @@ impl<L: Language> History<L> {
             std::mem::swap(&mut sast, &mut rast);
         }
 
-        println!("rule: {} => {}", sast.to_string(), rast.to_string());
-
         let (search_pattern, first_var_memo) = NodeExpr::from_pattern_ast::<N>(
             egraph,
             sast,
@@ -830,12 +788,6 @@ impl<L: Language> History<L> {
             Some(current_var_memo),
         );
         current_var_memo = first_var_memo;
-        println!(
-            "Prove one step: {} matching {} rewrite to {}",
-            left.to_string(),
-            search_pattern.to_string(),
-            rast.to_string()
-        );
 
         let maybe_subproof = self.find_proof_paths(
             egraph,
@@ -848,7 +800,6 @@ impl<L: Language> History<L> {
             fuel,
         );
         if maybe_subproof == None {
-            println!("Couldn't find subproof!");
             return None;
         }
         let unwrapped_subproof = maybe_subproof.unwrap();

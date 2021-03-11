@@ -298,7 +298,6 @@ where
                 }
             }
         }
-        println!("here matches r");
         Applications {
             from_nodes,
             affected_classes,
@@ -390,7 +389,6 @@ where
         {
             self.applier.apply_one(egraph, eclass, subst, top_node)
         } else {
-            println!("here one app");
             Applications {
                 affected_classes: vec![],
                 from_nodes: vec![],
