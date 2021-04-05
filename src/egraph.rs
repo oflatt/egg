@@ -596,14 +596,13 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             }
 
             for ((left, id1), (right, id2)) in to_union.drain(..) {
-                let mut hist = Default::default();
-                std::mem::swap(&mut self.history, &mut hist);
-                hist.union(left, right, id1, id2, &self);
-                std::mem::swap(&mut self.history, &mut hist);
-
                 let (to, did_something) = self.union_impl(id1, id2);
                 if did_something {
                     self.dirty_unions.push(to);
+                    let mut hist = Default::default();
+                    std::mem::swap(&mut self.history, &mut hist);
+                    hist.union(left, right, id1, id2, &self);
+                    std::mem::swap(&mut self.history, &mut hist);
                 }
             }
         }

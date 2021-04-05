@@ -94,7 +94,6 @@ impl Analysis<Math> for ConstantFold {
             if did_something {
                 let mut const_pattern: PatternAst<Math> = Default::default();
                 const_pattern.add(ENodeOrVar::ENode(Math::Constant(c)));
-                println!("using ids {} and {}", added, class_id);
                 egraph.add_union_proof(
                     class_id,
                     added,
@@ -106,6 +105,7 @@ impl Analysis<Math> for ConstantFold {
             }
             // to not prune, comment this out
             egraph[id].nodes.retain(|n| n.is_leaf());
+            
 
             assert!(
                 !egraph[id].nodes.is_empty(),

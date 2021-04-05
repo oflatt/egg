@@ -371,6 +371,7 @@ impl<L: Language> History<L> {
         let cto = to.clone().map_children(|id| egraph.find(id));
         let currentfrom = self.find_enode_in(&cfrom, fromid, egraph);
         let currentto = self.find_enode_in(&cto, toid, egraph);
+        assert!(currentfrom != currentto);
 
         let fromr = RewriteConnection {
             index: currentto,
@@ -401,6 +402,7 @@ impl<L: Language> History<L> {
         toid: Id,
         egraph: &EGraph<L, N>,
     ) {
+        println!("adding union {} and {}", fromid, toid);
         self.add_connection(
             from,
             to,
@@ -430,6 +432,7 @@ impl<L: Language> History<L> {
         subst: Subst,
         reason: String,
     ) {
+        println!("adding union proof {} and {}", fromid, toid);
         let from_node = NodeExpr::from_pattern_ast(egraph, &from, &subst, None, None).0;
         let to_node = NodeExpr::from_pattern_ast(egraph, &to, &subst, None, None).0;
         self.add_connection(
@@ -456,6 +459,7 @@ impl<L: Language> History<L> {
             applications.affected_classes,
             applications.from_classes
         ) {
+            println!("adding application {} and {}", from_class, class);
             let cfrom = from.clone().map_children(|child| egraph.find(child));
             let cto = to.clone().map_children(|child| egraph.find(child));
             self.add_connection(
@@ -567,6 +571,12 @@ impl<L: Language> History<L> {
                     }
                 }
                 if(todo == current) {
+                    println!("current: {}", current);
+                    println!("{}", enode_to_string(&self.graph[current].node));
+                    for child in &self.graph[current].children {
+                        println!("child: {}", child.index);
+                    }   
+                    assert!(self.graph[current].children.len() == 1);
                     return current;
                 }
                 seen.insert(current);
@@ -640,7 +650,6 @@ impl<L: Language> History<L> {
         let class = egraph.lookup(left.node.as_ref().unwrap().clone()).unwrap();
         let representative = self.find_leaf_node(*self.memo.get(&class).unwrap());
         prev.insert(representative, representative);
-        println!("Calling once");
         let (end, age) = self.find_youngest_recursive(representative, left, right, false, false, 0, 0, 0, 0, &mut prev, &mut prevc);
         assert!(age < usize::MAX);
 
@@ -675,7 +684,6 @@ impl<L: Language> History<L> {
         result_fail_cache: &mut ResultFailCache<L>,
         fuel_in: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
-        println!("Prove {} and {}", left_input.to_string(), right_input.to_string());
         // cost of this function
         let fuel = fuel_in;
 
@@ -684,6 +692,8 @@ impl<L: Language> History<L> {
         current_var_memo = new_memo_1;
         let (right, new_memo_2) = History::<L>::get_from_var_memo(&right_input, current_var_memo);
         current_var_memo = new_memo_2;
+
+        println!("Prove {} and {}", left.to_string(), right.to_string());
 
         let seen_entry = (
             left.clone().alpha_normalize(),
