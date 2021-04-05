@@ -402,7 +402,7 @@ impl<L: Language> History<L> {
         toid: Id,
         egraph: &EGraph<L, N>,
     ) {
-        println!("adding union {} and {}", fromid, toid);
+        //println!("adding union {} and {}", fromid, toid);
         self.add_connection(
             from,
             to,
@@ -432,7 +432,7 @@ impl<L: Language> History<L> {
         subst: Subst,
         reason: String,
     ) {
-        println!("adding union proof {} and {}", fromid, toid);
+        //println!("adding union proof {} and {}", fromid, toid);
         let from_node = NodeExpr::from_pattern_ast(egraph, &from, &subst, None, None).0;
         let to_node = NodeExpr::from_pattern_ast(egraph, &to, &subst, None, None).0;
         self.add_connection(
@@ -459,7 +459,7 @@ impl<L: Language> History<L> {
             applications.affected_classes,
             applications.from_classes
         ) {
-            println!("adding application {} and {}", from_class, class);
+            //println!("adding application {} and {}", from_class, class);
             let cfrom = from.clone().map_children(|child| egraph.find(child));
             let cto = to.clone().map_children(|child| egraph.find(child));
             self.add_connection(
@@ -571,11 +571,6 @@ impl<L: Language> History<L> {
                     }
                 }
                 if(todo == current) {
-                    println!("current: {}", current);
-                    println!("{}", enode_to_string(&self.graph[current].node));
-                    for child in &self.graph[current].children {
-                        println!("child: {}", child.index);
-                    }   
                     assert!(self.graph[current].children.len() == 1);
                     return current;
                 }
@@ -693,7 +688,7 @@ impl<L: Language> History<L> {
         let (right, new_memo_2) = History::<L>::get_from_var_memo(&right_input, current_var_memo);
         current_var_memo = new_memo_2;
 
-        println!("Prove {} and {}", left.to_string(), right.to_string());
+        //println!("Prove {} and {}", left.to_string(), right.to_string());
 
         let seen_entry = (
             left.clone().alpha_normalize(),
@@ -880,7 +875,7 @@ impl<L: Language> History<L> {
             std::mem::swap(&mut sast, &mut rast);            
         }
 
-        println!("Rule {} to {}", sast, rast);
+        //println!("Rule {} to {}", sast, rast);
 
         let (search_pattern, first_var_memo) = NodeExpr::from_pattern_ast::<N>(
             egraph,
