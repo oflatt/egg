@@ -570,7 +570,7 @@ impl<L: Language> History<L> {
                         break;
                     }
                 }
-                if(todo == current) {
+                if (todo == current) {
                     assert!(self.graph[current].children.len() == 1);
                     return current;
                 }
@@ -586,32 +586,32 @@ impl<L: Language> History<L> {
         current: usize,
         left: &Rc<NodeExpr<L>>,
         right: &Rc<NodeExpr<L>>,
-        mut has_found_left: bool,
-        mut has_found_right: bool,
-        mut last_found_left_index: usize,
-        mut last_found_right_index: usize,
-        mut last_found_left_age: usize,
-        mut last_found_right_age: usize,
         prev: &mut HashMap<usize, usize>,
-        prevc: &mut HashMap<usize, &'a RewriteConnection<L>>
-    ) -> (usize, usize) {
-        let mut best = (0, usize::MAX);
-        if &self.graph[current].node == right.node.as_ref().unwrap() || &self.graph[current].node == left.node.as_ref().unwrap() {
+        prevc: &mut HashMap<usize, &'a RewriteConnection<L>>,
+        best_age: &mut usize,
+        best_left: &mut usize,
+        best_right: &mut usize,
+        best_middle: &mut usize,
+    ) -> (bool, bool, usize, usize, usize, usize) {
+        let mut has_found_left: bool = false;
+        let mut has_found_right: bool = false;
+        let mut last_found_left_index: usize = 0;
+        let mut last_found_right_index: usize = 0;
+        let mut last_found_left_age: usize = usize::MAX;
+        let mut last_found_right_age: usize = usize::MAX;
+
+        if &self.graph[current].node == right.node.as_ref().unwrap()
+            || &self.graph[current].node == left.node.as_ref().unwrap()
+        {
             let isleft = &self.graph[current].node == left.node.as_ref().unwrap();
             if isleft {
                 has_found_left = true;
                 last_found_left_index = current;
                 last_found_left_age = 0;
-                if has_found_right {
-                    best = (current, last_found_right_age);
-                }
             } else {
                 has_found_right = true;
                 last_found_right_index = current;
                 last_found_right_age = 0;
-                if has_found_left {
-                    best = (current, last_found_left_age);
-                }
             }
         }
 
@@ -619,15 +619,59 @@ impl<L: Language> History<L> {
             if prev.get(&child.index) == None {
                 prev.insert(child.index, current);
                 prevc.insert(child.index, &child);
-                let rec = self.find_youngest_recursive(child.index, left, right,
-                    has_found_left, has_found_right, last_found_left_index, last_found_right_index,
-                    usize::max(child.age, last_found_left_age), usize::max(child.age, last_found_right_age), prev, prevc);
-                if rec.1 < best.1 {
-                    best = rec;
+                let (
+                    child_left,
+                    child_right,
+                    child_left_index,
+                    child_right_index,
+                    mut child_left_age,
+                    mut child_right_age,
+                ) = self.find_youngest_recursive(
+                    child.index,
+                    left,
+                    right,
+                    prev,
+                    prevc,
+                    best_age,
+                    best_left,
+                    best_right,
+                    best_middle,
+                );
+                child_left_age = usize::max(child_left_age, child.age);
+                child_right_age = usize::max(child_right_age, child.age);
+                if child_left {
+                    if (child_left_age < last_found_left_age) || !has_found_left {
+                        has_found_left = true;
+                        last_found_left_age = child_left_age;
+                        last_found_left_index = child_left_index;
+                    }
+                }
+                if child_right {
+                    if (child_right_age < last_found_right_age) || !has_found_right {
+                        has_found_right = true;
+                        last_found_right_age = child_right_age;
+                        last_found_right_index = child_right_index;
+                    }
                 }
             }
         }
-        best
+
+        if has_found_left && has_found_right {
+            if usize::max(last_found_left_age, last_found_right_age) < *best_age {
+                *best_age = usize::max(last_found_left_age, last_found_right_age);
+                *best_left = last_found_left_index;
+                *best_right = last_found_right_index;
+                *best_middle = current;
+            }
+        }
+        (
+            has_found_left,
+            has_found_right,
+            last_found_left_index,
+            last_found_right_index,
+            last_found_left_age,
+            last_found_right_age,
+        )
     }
 
     fn find_youngest_proof_path<N: Analysis<L>>(
@@ -635,35 +679,64 @@ impl<L: Language> History<L> {
         egraph: &mut EGraph<L, N>,
         left: &Rc<NodeExpr<L>>,
         right: &Rc<NodeExpr<L>>,
-    ) -> (Vec<&RewriteConnection<L>>, bool) {
+    ) -> (Vec<&RewriteConnection<L>>, Vec<&RewriteConnection<L>>) {
         if left.node.as_ref() == right.node.as_ref() {
-            return (vec![], false);
+            return (vec![], vec![]);
         }
 
         let mut prev: HashMap<usize, usize> = Default::default();
         let mut prevc: HashMap<usize, &RewriteConnection<L>> = Default::default();
         let class = egraph.lookup(left.node.as_ref().unwrap().clone()).unwrap();
+        assert_eq!(
+            class,
+            egraph.lookup(right.node.as_ref().unwrap().clone()).unwrap()
+        );
+        self.find_enode_in(left.node.as_ref().unwrap(), class, egraph);
+        self.find_enode_in(right.node.as_ref().unwrap(), class, egraph);
         let representative = self.find_leaf_node(*self.memo.get(&class).unwrap());
         prev.insert(representative, representative);
-        let (end, age) = self.find_youngest_recursive(representative, left, right, false, false, 0, 0, 0, 0, &mut prev, &mut prevc);
+        let mut age = usize::MAX;
+        let mut left_node = 0;
+        let mut right_node = 0;
+        let mut middle_node = 0;
+        self.find_youngest_recursive(
+            representative,
+            left,
+            right,
+            &mut prev,
+            &mut prevc,
+            &mut age,
+            &mut left_node,
+            &mut right_node,
+            &mut middle_node,
+        );
         assert!(age < usize::MAX);
 
-        let mut path: Vec<&RewriteConnection<L>> = Default::default();
-        let mut is_backwards = &self.graph[end].node == right.node.as_ref().unwrap();
-        let mut trail = end;
+        let mut leftpath: Vec<&RewriteConnection<L>> = Default::default();
+        let mut rightpath: Vec<&RewriteConnection<L>> = Default::default();
+
+        let mut trail = left_node;
         while (true) {
-            let p = prev[&trail];
-            assert!(trail != p);
-            path.push(prevc.get(&trail).unwrap());
-            trail = p;
-            if &self.graph[trail].node == left.node.as_ref().unwrap() || &self.graph[trail].node == right.node.as_ref().unwrap() {
+            if (trail == middle_node) {
                 break;
             }
+            let p = prev[&trail];
+            assert!(trail != p);
+            leftpath.push(prevc.get(&trail).unwrap());
+            trail = p;
         }
-        if is_backwards {
-            path.reverse();
+        trail = right_node;
+        while (true) {
+            if (trail == middle_node) {
+                break;
+            }
+            let p = prev[&trail];
+            assert!(trail != p);
+            rightpath.push(prevc.get(&trail).unwrap());
+            trail = p;
         }
-        return (path, !is_backwards);
+        rightpath.reverse();
+        return (leftpath, rightpath);
     }
 
     // find a sequence of rewrites between two enodes
@@ -688,7 +761,7 @@ impl<L: Language> History<L> {
         let (right, new_memo_2) = History::<L>::get_from_var_memo(&right_input, current_var_memo);
         current_var_memo = new_memo_2;
 
-        //println!("Prove {} and {}", left.to_string(), right.to_string());
+        println!("Prove {} and {}", left.to_string(), right.to_string());
 
         let seen_entry = (
             left.clone().alpha_normalize(),
@@ -737,10 +810,19 @@ impl<L: Language> History<L> {
             egraph.lookup(right.node.as_ref().unwrap().clone())
         );
 
-        let (path, is_backwards) = self.find_youngest_proof_path(egraph, &left, &right);
+        let (leftpath, rightpath) = self.find_youngest_proof_path(egraph, &left, &right);
+        let leftsize = leftpath.len();
+        let rightsize = rightpath.len();
         let mut proof = vec![left.clone()];
-        for i in 0..path.len() {
-            let connection = path[i];
+        for i in 0..(leftsize + rightsize) {
+            let mut connection;
+            let mut is_backwards = false;
+            if i < leftsize {
+                connection = leftpath[i];
+                is_backwards = true;
+            } else {
+                connection = rightpath[i - leftsize];
+            }
             let recent = proof.pop().unwrap();
             if let Some((subproof, vmemo)) = self.prove_one_step(
                 egraph,
@@ -751,7 +833,7 @@ impl<L: Language> History<L> {
                 new_seen_memo.clone(),
                 result_fail_cache,
                 fuel,
-                is_backwards
+                is_backwards,
             ) {
                 current_var_memo = vmemo;
                 proof.extend(subproof);
@@ -872,7 +954,7 @@ impl<L: Language> History<L> {
             direction = !direction;
         }
         if !direction {
-            std::mem::swap(&mut sast, &mut rast);            
+            std::mem::swap(&mut sast, &mut rast);
         }
 
         //println!("Rule {} to {}", sast, rast);

@@ -105,7 +105,6 @@ impl Analysis<Math> for ConstantFold {
             }
             // to not prune, comment this out
             egraph[id].nodes.retain(|n| n.is_leaf());
-            
 
             assert!(
                 !egraph[id].nodes.is_empty(),
