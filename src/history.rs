@@ -674,6 +674,84 @@ impl<L: Language> History<L> {
         )
     }
 
+    fn matching_age_calculation<N: Analysis<L>>(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        prog: &Rc<NodeExpr<L>>,
+        representative: usize,
+    ) -> HashMap<usize, usize> {
+        let mut ages: HashMap<usize, usize> = Default::default();
+        let mut child_ages: Vec<HashMap<usize, usize>> = Default::default();
+        for child in &prog.children {
+            child_ages.push(self.rec_age_calculation(egraph, child));
+        }
+        // TODO don't unwrap node, what about variable ages
+        let enode = prog.node.as_ref().unwrap();
+
+        let mut seen: HashSet<usize> = Default::default();
+        let mut todo: VecDeque<usize> = VecDeque::new();
+        todo.push_back(representative);
+
+        while (todo.len() > 0) {
+            let current = todo.pop_front().unwrap();
+            let cnode = self.graph[current]
+                .node
+                .clone()
+                .map_children(|id| egraph.find(id));
+            if seen.contains(&current) {
+                continue;
+            }
+            seen.insert(current);
+            if &cnode == enode {
+                let mut age = 0;
+                let mut iter = 0;
+                self.graph[current].node.for_each(|id| {
+                    let cage = child_ages[iter].get(&usize::from(id)).unwrap();
+                    age = usize::max(*cage, age);
+                    iter += 1;
+                });
+                ages.insert(current, age);
+            } else {
+                for child in &self.graph[current].children {
+                    todo.push_back(child.index);
+                }
+            }
+        }
+        ages
+    }
+
+    fn rec_age_calculation<N: Analysis<L>>(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        prog: &Rc<NodeExpr<L>>
+    ) -> HashMap<usize, usize> {
+        let class = egraph.lookup(prog.node.as_ref().unwrap().clone()).unwrap();
+        let representative = *self.memo.get(&class).unwrap();
+        // get all the ages from matching enodes
+        let ages = self.matching_age_calculation(egraph, prog, representative);
+
+        // propagate ages from matching enodes to eclass representatives
+        let mut todo: VecDeque<usize> = VecDeque::new();
+        for (key, age) in ages {
+            todo.push_back(key);
+        }
+
+        // find nearest age until fixed point
+        while(todo.len() > 0) {
+            let current = todo.pop_front().unwrap();
+            let age = ages.get(&current).unwrap();
+            for child in &self.graph[current].children {
+                let mage = usize::max(*age, child.age);
+                if(mage > ages.get(child.index).unwrap_or(0) || ages.get(child.index) == 0) {
+                    ages.insert(child.index, mage);
+                    todo.push_back(child.index);   
+                }
+            }
+        }
+
+        ages
+    }
+
     fn find_youngest_proof_path<N: Analysis<L>>(
         &self,
         egraph: &mut EGraph<L, N>,
@@ -957,7 +1035,7 @@ impl<L: Language> History<L> {
             std::mem::swap(&mut sast, &mut rast);
         }
 
-        //println!("Rule {} to {}", sast, rast);
+        println!("Rule {} to {}", sast, rast);
 
         let (search_pattern, first_var_memo) = NodeExpr::from_pattern_ast::<N>(
             egraph,

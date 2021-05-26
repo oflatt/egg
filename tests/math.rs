@@ -326,6 +326,12 @@ pub fn simple_rules() -> Vec<Rewrite> { vec![
     rw!("assoc-add"; "(+ ?a (+ ?b ?c))" => "(+ (+ ?a ?b) ?c)"),
 ]}
 
+#[rustfmt::skip]
+pub fn weird_rules() -> Vec<Rewrite> { vec![
+    rw!("comm-add"; "(+ a (+ a a))" => "a"),
+    rw!("assoc-add"; "(+ a a)" => "a"),
+]}
+
 fn check_proof(
     r: &mut Runner<Math, ConstantFold>,
     rules: Vec<Rewrite>,
@@ -369,6 +375,8 @@ fn check_proof_exists(
     }
 }
 
+
+
 egg::test_fn! {
     math_prove, simple_rules(),
     runner = Runner::default()
@@ -380,6 +388,22 @@ egg::test_fn! {
     @check |mut r: Runner<Math, ConstantFold>| {
         r.egraph.dot().to_png("target/tree.png").unwrap();
         check_proof(&mut r, simple_rules(), "(+ a b)", "(+ b a)",
+                    Some(vec!["(=> (+ a b))",
+                         "comm-add =>",
+                         "(+ b a)"]));
+    }
+}
+
+egg::test_fn! {
+    math_prove_avoid_cycle, weird_rules(),
+    runner = Runner::default()
+        .with_iter_limit(1)
+        .with_scheduler(SimpleScheduler),
+    "(+ a (+ a a))"
+    =>
+    "a"
+    @check |mut r: Runner<Math, ConstantFold>| {
+        check_proof(&mut r, weird_rules(), "(+ a a)", "a",
                     Some(vec!["(=> (+ a b))",
                          "comm-add =>",
                          "(+ b a)"]));
