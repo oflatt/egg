@@ -15,6 +15,7 @@ type SeenMemo<L> = HashTrieSet<(Rc<NodeExpr<L>>, Rc<NodeExpr<L>>)>;
 type VarMemo<L> = Vector<Rc<NodeExpr<L>>>;
 type ExprMemo<L> = HashTrieSet<Rc<NodeExpr<L>>>;
 type ResultFailCache<L> = HashMap<(Rc<NodeExpr<L>>, Rc<NodeExpr<L>>), usize>;
+type AgeRec<L> = HashMap<usize, (usize, Rc<NodeExpr<L>>)>;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 enum RuleReference<L> {
@@ -679,9 +680,9 @@ impl<L: Language> History<L> {
         egraph: &mut EGraph<L, N>,
         prog: &Rc<NodeExpr<L>>,
         representative: usize,
-    ) -> HashMap<usize, usize> {
-        let mut ages: HashMap<usize, usize> = Default::default();
-        let mut child_ages: Vec<HashMap<usize, usize>> = Default::default();
+    ) -> AgeRec<L> {
+        let mut ages: AgeRec<L> = Default::default();
+        let mut child_ages: Vec<AgeRec<L>> = Default::default();
         for child in &prog.children {
             child_ages.push(self.rec_age_calculation(egraph, child));
         }
@@ -705,12 +706,16 @@ impl<L: Language> History<L> {
             if &cnode == enode {
                 let mut age = 0;
                 let mut iter = 0;
+                let mut aprog = prog.clone();
                 self.graph[current].node.for_each(|id| {
                     let cage = child_ages[iter].get(&usize::from(id)).unwrap();
-                    age = usize::max(*cage, age);
+                    if cage.0 > age {
+                        age = cage.0;
+                        aprog = cage.1.clone();
+                    }
                     iter += 1;
                 });
-                ages.insert(current, age);
+                ages.insert(current, (age, aprog));
             } else {
                 for child in &self.graph[current].children {
                     todo.push_back(child.index);
@@ -724,26 +729,27 @@ impl<L: Language> History<L> {
         &self,
         egraph: &mut EGraph<L, N>,
         prog: &Rc<NodeExpr<L>>
-    ) -> HashMap<usize, usize> {
+    ) -> AgeRec<L> {
         let class = egraph.lookup(prog.node.as_ref().unwrap().clone()).unwrap();
         let representative = *self.memo.get(&class).unwrap();
         // get all the ages from matching enodes
-        let ages = self.matching_age_calculation(egraph, prog, representative);
+        let mut ages = self.matching_age_calculation(egraph, prog, representative);
 
         // propagate ages from matching enodes to eclass representatives
         let mut todo: VecDeque<usize> = VecDeque::new();
-        for (key, age) in ages {
-            todo.push_back(key);
+        for (key, age) in &ages {
+            todo.push_back(*key);
         }
 
         // find nearest age until fixed point
         while(todo.len() > 0) {
             let current = todo.pop_front().unwrap();
-            let age = ages.get(&current).unwrap();
+            let age = ages.get(&current).unwrap().clone();
             for child in &self.graph[current].children {
-                let mage = usize::max(*age, child.age);
-                if(mage > ages.get(child.index).unwrap_or(0) || ages.get(child.index) == 0) {
-                    ages.insert(child.index, mage);
+                let mage = usize::max(age.0, child.age);
+                let mprog = age.1.clone();
+                if mage > ages.get(&child.index).unwrap_or(&(0, prog.clone())).0 {
+                    ages.insert(child.index, (mage, mprog.clone()));
                     todo.push_back(child.index);   
                 }
             }
