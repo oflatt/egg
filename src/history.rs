@@ -527,30 +527,21 @@ impl<L: Language> History<L> {
         } else {
             let lg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, left));
             let rg = Rc::new(NodeExpr::from_recexpr::<N>(egraph, right));
-            let INITIAL_FUEL = 2;
-            let MAX_FUEL = 20;
-            let mut fuel = INITIAL_FUEL;
-            while (fuel <= MAX_FUEL) {
-                // push since 0 is a special value and represents no variable
-                let var_memo = Vector::<Rc<NodeExpr<L>>>::new()
-                    .push_back(Rc::new(NodeExpr::new(None, vec![])));
-                let seen_memo: SeenMemo<L> = Default::default();
-                // from an input to a fuel it failed for
-                let mut result_fail_cache = Default::default();
-                let r = self.find_proof_paths(
-                    egraph,
-                    rules,
-                    lg.clone(),
-                    rg.clone(),
-                    var_memo,
-                    seen_memo,
-                    &mut result_fail_cache,
-                    fuel,
-                );
-                fuel += 1;
-                if r != None {
-                    return Some(r.unwrap().0);
-                }
+            // push since 0 is a special value and represents no variable
+            let var_memo = Vector::<Rc<NodeExpr<L>>>::new()
+                .push_back(Rc::new(NodeExpr::new(None, vec![])));
+            let seen_memo: SeenMemo<L> = Default::default();
+            // from an input to a fuel it failed for
+            let r = self.find_proof_paths(
+                egraph,
+                rules,
+                lg.clone(),
+                rg.clone(),
+                var_memo,
+                seen_memo,
+            );
+            if r != None {
+                return Some(r.unwrap().0);
             }
             return None;
         }
@@ -587,6 +578,8 @@ impl<L: Language> History<L> {
         current: usize,
         left: &Rc<NodeExpr<L>>,
         right: &Rc<NodeExpr<L>>,
+        left_ages: &AgeRec<L>,
+        right_ages: &AgeRec<L>,
         prev: &mut HashMap<usize, usize>,
         prevc: &mut HashMap<usize, &'a RewriteConnection<L>>,
         best_age: &mut usize,
@@ -608,11 +601,11 @@ impl<L: Language> History<L> {
             if isleft {
                 has_found_left = true;
                 last_found_left_index = current;
-                last_found_left_age = 0;
+                last_found_left_age = left_ages[&current].0;
             } else {
                 has_found_right = true;
                 last_found_right_index = current;
-                last_found_right_age = 0;
+                last_found_right_age = right_ages[&current].0;
             }
         }
 
@@ -631,6 +624,8 @@ impl<L: Language> History<L> {
                     child.index,
                     left,
                     right,
+                    left_ages,
+                    right_ages,
                     prev,
                     prevc,
                     best_age,
@@ -683,11 +678,15 @@ impl<L: Language> History<L> {
     ) -> AgeRec<L> {
         let mut ages: AgeRec<L> = Default::default();
         let mut child_ages: Vec<AgeRec<L>> = Default::default();
-        for child in &prog.children {
-            child_ages.push(self.rec_age_calculation(egraph, child));
+        let mut index = 0;
+        if prog.node.as_ref() != None {
+            prog.node.as_ref().unwrap().for_each(|child_id| {
+                let child = &prog.children[index];
+                index += 1;
+                child_ages.push(self.rec_age_calculation(egraph, child, usize::from(child_id)));
+            });
         }
-        // TODO don't unwrap node, what about variable ages
-        let enode = prog.node.as_ref().unwrap();
+        let enode = prog.node.as_ref();
 
         let mut seen: HashSet<usize> = Default::default();
         let mut todo: VecDeque<usize> = VecDeque::new();
@@ -703,7 +702,7 @@ impl<L: Language> History<L> {
                 continue;
             }
             seen.insert(current);
-            if &cnode == enode {
+            if Some(&cnode) == enode {
                 let mut age = 0;
                 let mut iter = 0;
                 let mut aprog = prog.clone();
@@ -716,6 +715,8 @@ impl<L: Language> History<L> {
                     iter += 1;
                 });
                 ages.insert(current, (age, aprog));
+            } else if enode == None {
+                ages.insert(current, (0, prog.clone()));
             } else {
                 for child in &self.graph[current].children {
                     todo.push_back(child.index);
@@ -728,10 +729,9 @@ impl<L: Language> History<L> {
     fn rec_age_calculation<N: Analysis<L>>(
         &self,
         egraph: &mut EGraph<L, N>,
-        prog: &Rc<NodeExpr<L>>
+        prog: &Rc<NodeExpr<L>>,
+        representative: usize
     ) -> AgeRec<L> {
-        let class = egraph.lookup(prog.node.as_ref().unwrap().clone()).unwrap();
-        let representative = *self.memo.get(&class).unwrap();
         // get all the ages from matching enodes
         let mut ages = self.matching_age_calculation(egraph, prog, representative);
 
@@ -783,10 +783,14 @@ impl<L: Language> History<L> {
         let mut left_node = 0;
         let mut right_node = 0;
         let mut middle_node = 0;
+        let left_ages = self.rec_age_calculation(egraph, left, representative);
+        let right_ages = self.rec_age_calculation(egraph, right, representative);
         self.find_youngest_recursive(
             representative,
             left,
             right,
+            &left_ages,
+            &right_ages,
             &mut prev,
             &mut prevc,
             &mut age,
@@ -823,6 +827,84 @@ impl<L: Language> History<L> {
         return (leftpath, rightpath);
     }
 
+    fn apply_path<N: Analysis<L>>(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        rules: &[&Rewrite<L, N>],
+        left: Rc<NodeExpr<L>>,
+        right: Rc<NodeExpr<L>>,
+        var_memo: VarMemo<L>,
+        seen_memo: SeenMemo<L>,
+        (leftpath, rightpath): (Vec<&RewriteConnection<L>>, Vec<&RewriteConnection<L>>)
+    ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
+        let mut current_var_memo = var_memo;
+        let mut current_seen_memo = seen_memo;
+        let leftsize = leftpath.len();
+        let rightsize = rightpath.len();
+        let mut proof = vec![left.clone()];
+        for i in 0..(leftsize + rightsize) {
+            let mut connection;
+            let mut is_backwards = false;
+            if i < leftsize {
+                connection = leftpath[i];
+                is_backwards = true;
+            } else {
+                connection = rightpath[i - leftsize];
+            }
+            let recent = proof.pop().unwrap();
+            if let Some((subproof, vmemo)) = self.prove_one_step(
+                egraph,
+                rules,
+                recent,
+                connection,
+                current_var_memo,
+                current_seen_memo.clone(),
+                is_backwards,
+            ) {
+                current_var_memo = vmemo;
+                proof.extend(subproof);
+            } else {
+                panic!("failed to find subproof");
+                return None;
+            }
+        }
+
+        if proof[proof.len() - 1].node != right.node {
+            let latest = proof.pop().unwrap();
+            let rest_of_proof = self.find_proof_paths(
+                egraph,
+                rules,
+                latest,
+                right.clone(),
+                current_var_memo.clone(),
+                current_seen_memo.clone(),
+            );
+            if let Some((subproof, vmemo)) = rest_of_proof {
+                current_var_memo = vmemo;
+                proof.extend(subproof);
+            } else {
+                return None;
+            }
+        } else {
+            let (success, vmemo) = self.prove_children_equal(
+                egraph,
+                rules,
+                right.clone(),
+                &mut proof,
+                current_var_memo.clone(),
+                current_seen_memo.clone(),
+            );
+            if success {
+                current_var_memo = vmemo;
+            } else {
+                panic!("Failed to prove children equal");
+                return None;
+            }
+        }
+
+        Some((proof, current_var_memo))
+    }
+
     // find a sequence of rewrites between two enodes
     // fuel determines the maximum number of backtracks before giving up
     fn find_proof_paths<N: Analysis<L>>(
@@ -833,12 +915,8 @@ impl<L: Language> History<L> {
         right_input: Rc<NodeExpr<L>>,
         var_memo: VarMemo<L>,
         seen_memo: SeenMemo<L>,
-        result_fail_cache: &mut ResultFailCache<L>,
-        fuel_in: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
         // cost of this function
-        let fuel = fuel_in;
-
         let mut current_var_memo = var_memo;
         let (left, new_memo_1) = History::<L>::get_from_var_memo(&left_input, current_var_memo);
         current_var_memo = new_memo_1;
@@ -856,7 +934,7 @@ impl<L: Language> History<L> {
             panic!("Cycle detected");
             return None;
         }
-        let new_seen_memo = seen_memo.insert(seen_entry.clone());
+        let current_seen_memo = seen_memo.insert(seen_entry.clone());
 
         // union them when they are both variables
         if (left.node == None && right.node == None) {
@@ -895,76 +973,8 @@ impl<L: Language> History<L> {
         );
 
         let (leftpath, rightpath) = self.find_youngest_proof_path(egraph, &left, &right);
-        let leftsize = leftpath.len();
-        let rightsize = rightpath.len();
-        let mut proof = vec![left.clone()];
-        for i in 0..(leftsize + rightsize) {
-            let mut connection;
-            let mut is_backwards = false;
-            if i < leftsize {
-                connection = leftpath[i];
-                is_backwards = true;
-            } else {
-                connection = rightpath[i - leftsize];
-            }
-            let recent = proof.pop().unwrap();
-            if let Some((subproof, vmemo)) = self.prove_one_step(
-                egraph,
-                rules,
-                recent,
-                connection,
-                current_var_memo,
-                new_seen_memo.clone(),
-                result_fail_cache,
-                fuel,
-                is_backwards,
-            ) {
-                current_var_memo = vmemo;
-                proof.extend(subproof);
-            } else {
-                panic!("failed to find subproof");
-                return None;
-            }
-        }
 
-        if proof[proof.len() - 1].node != right.node {
-            let latest = proof.pop().unwrap();
-            let rest_of_proof = self.find_proof_paths(
-                egraph,
-                rules,
-                latest,
-                right.clone(),
-                current_var_memo.clone(),
-                new_seen_memo.clone(),
-                result_fail_cache,
-                fuel,
-            );
-            if let Some((subproof, vmemo)) = rest_of_proof {
-                current_var_memo = vmemo;
-                proof.extend(subproof);
-            } else {
-                return None;
-            }
-        } else {
-            let (success, vmemo) = self.prove_children_equal(
-                egraph,
-                rules,
-                right.clone(),
-                &mut proof,
-                current_var_memo.clone(),
-                new_seen_memo.clone(),
-                result_fail_cache,
-                fuel_in,
-            );
-            if success {
-                current_var_memo = vmemo;
-            } else {
-                panic!("Failed to prove children equal");
-                return None;
-            }
-        }
-
-        Some((proof, current_var_memo))
+        self.apply_path(egraph, rules, left, right, current_var_memo, current_seen_memo, (leftpath, rightpath))
     }
 
     fn get_from_var_memo(
@@ -1007,8 +1017,6 @@ impl<L: Language> History<L> {
         connection: &RewriteConnection<L>,
         var_memo: Vector<Rc<NodeExpr<L>>>,
         seen_memo: SeenMemo<L>,
-        result_fail_cache: &mut ResultFailCache<L>,
-        fuel: usize,
         is_backwards: bool,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, Vector<Rc<NodeExpr<L>>>)> {
         // returns a new var_memo
@@ -1059,8 +1067,6 @@ impl<L: Language> History<L> {
             Rc::new(search_pattern),
             current_var_memo,
             seen_memo.clone(),
-            result_fail_cache,
-            fuel,
         );
         if maybe_subproof == None {
             return None;
@@ -1096,8 +1102,6 @@ impl<L: Language> History<L> {
         proof: &mut Vec<Rc<NodeExpr<L>>>,
         var_memo: Vector<Rc<NodeExpr<L>>>,
         seen_memo: SeenMemo<L>,
-        result_fail_cache: &mut ResultFailCache<L>,
-        fuel: usize,
     ) -> (bool, VarMemo<L>) {
         let left = proof[proof.len() - 1].clone();
         if left.children.len() != right.children.len() {
@@ -1118,8 +1122,6 @@ impl<L: Language> History<L> {
                 rchild,
                 current_var_memo,
                 seen_memo.clone(),
-                result_fail_cache,
-                fuel,
             );
             if proof_equal_maybe == None {
                 return (false, Default::default());
