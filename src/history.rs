@@ -761,11 +761,14 @@ impl<L: Language> History<L> {
     fn find_youngest_proof_path<N: Analysis<L>>(
         &self,
         egraph: &mut EGraph<L, N>,
-        left: &Rc<NodeExpr<L>>,
-        right: &Rc<NodeExpr<L>>,
-    ) -> (Vec<&RewriteConnection<L>>, Vec<&RewriteConnection<L>>) {
-        if left.node.as_ref() == right.node.as_ref() {
-            return (vec![], vec![]);
+        rules: &[&Rewrite<L, N>],
+        left: Rc<NodeExpr<L>>,
+        right: Rc<NodeExpr<L>>,
+        current_var_memo: VarMemo<L>,
+        current_seen_memo: SeenMemo<L>,
+    ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
+        if left.node == right.node {
+            return self.apply_path(egraph, rules, left, right, current_var_memo, current_seen_memo, (vec![], vec![]));
         }
 
         let mut prev: HashMap<usize, usize> = Default::default();
@@ -783,12 +786,12 @@ impl<L: Language> History<L> {
         let mut left_node = 0;
         let mut right_node = 0;
         let mut middle_node = 0;
-        let left_ages = self.rec_age_calculation(egraph, left, representative);
-        let right_ages = self.rec_age_calculation(egraph, right, representative);
+        let left_ages = self.rec_age_calculation(egraph, &left, representative);
+        let right_ages = self.rec_age_calculation(egraph, &right, representative);
         self.find_youngest_recursive(
             representative,
-            left,
-            right,
+            &left,
+            &right,
             &left_ages,
             &right_ages,
             &mut prev,
@@ -824,7 +827,8 @@ impl<L: Language> History<L> {
             trail = p;
         }
         rightpath.reverse();
-        return (leftpath, rightpath);
+
+        self.apply_path(egraph, rules, left, right, current_var_memo, current_seen_memo, (leftpath, rightpath))
     }
 
     fn apply_path<N: Analysis<L>>(
@@ -972,9 +976,7 @@ impl<L: Language> History<L> {
             egraph.lookup(right.node.as_ref().unwrap().clone())
         );
 
-        let (leftpath, rightpath) = self.find_youngest_proof_path(egraph, &left, &right);
-
-        self.apply_path(egraph, rules, left, right, current_var_memo, current_seen_memo, (leftpath, rightpath))
+        self.find_youngest_proof_path(egraph, rules, left, right, current_var_memo, current_seen_memo)
     }
 
     fn get_from_var_memo(
