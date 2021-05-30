@@ -375,8 +375,6 @@ fn check_proof_exists(
     }
 }
 
-
-
 egg::test_fn! {
     math_prove, simple_rules(),
     runner = Runner::default()
