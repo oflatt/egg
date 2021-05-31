@@ -534,6 +534,7 @@ impl<L: Language> History<L> {
     }
 
     // updates memo to use cannonical references
+    /*
     pub(crate) fn rebuild<N: Analysis<L>>(&mut self, egraph: &EGraph<L, N>) {
         for graphnode in self.graph.iter_mut() {
             graphnode.node = graphnode
@@ -541,7 +542,7 @@ impl<L: Language> History<L> {
                 .clone()
                 .map_children(|child| egraph.find(child));
         }
-    }
+    }*/
 
     pub(crate) fn produce_proof<N: Analysis<L>>(
         &self,
@@ -741,10 +742,10 @@ impl<L: Language> History<L> {
                 ages.insert(current, (age, pointer, aprog));
             } else if enode == None {
                 ages.insert(current, (0, current, prog.clone()));
-            } else {
-                for child in &self.graph[current].children {
-                    todo.push_back(child.index);
-                }
+            }
+            
+            for child in &self.graph[current].children {
+                todo.push_back(child.index);
             }
         }
         ages
@@ -772,7 +773,7 @@ impl<L: Language> History<L> {
             for child in &self.graph[current].children {
                 let mage = usize::max(age.0, child.age);
                 let mprog = age.2.clone();
-                if mage > ages.get(&child.index).unwrap_or(&(0, 0, prog.clone())).0 {
+                if mage < ages.get(&child.index).unwrap_or(&(usize::MAX, 0, prog.clone())).0 {
                     ages.insert(child.index, (mage, current, mprog.clone()));
                     todo.push_back(child.index);
                 }
@@ -942,6 +943,9 @@ impl<L: Language> History<L> {
             &mut middle_node,
         );
         assert!(age < usize::MAX);
+        println!("Left age is {}", left_ages.get(&left_node).unwrap().0);
+        println!("Right age is {}", right_ages.get(&right_node).unwrap().0);
+        println!("Age is {}", age);
 
         if age == left_ages.get(&left_node).unwrap().0 {
             println!("Taking path on left pattern");

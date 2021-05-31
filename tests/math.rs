@@ -328,8 +328,8 @@ pub fn simple_rules() -> Vec<Rewrite> { vec![
 
 #[rustfmt::skip]
 pub fn weird_rules() -> Vec<Rewrite> { vec![
-    rw!("comm-add"; "(+ a (+ a a))" => "a"),
-    rw!("assoc-add"; "(+ a a)" => "a"),
+    rw!("three"; "(+ a (+ a a))" => "a"),
+    rw!("two"; "(+ a a)" => "a"),
 ]}
 
 fn check_proof(
@@ -402,9 +402,7 @@ egg::test_fn! {
     "a"
     @check |mut r: Runner<Math, ConstantFold>| {
         check_proof(&mut r, weird_rules(), "(+ a a)", "a",
-                    Some(vec!["(=> (+ a b))",
-                         "comm-add =>",
-                         "(+ b a)"]));
+            Some(vec!["(=> (+ a a))", "two =>", "a"]));
     }
 }
 

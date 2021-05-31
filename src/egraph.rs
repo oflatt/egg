@@ -654,12 +654,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         self.process_unions();
         let n_unions = std::mem::take(&mut self.repairs_since_rebuild);
         let trimmed_nodes = self.rebuild_classes();
-
-        let mut hist = Default::default();
-        std::mem::swap(&mut self.history, &mut hist);
-        hist.rebuild(&self);
-        std::mem::swap(&mut self.history, &mut hist);
-
+        
         let elapsed = start.elapsed();
         info!(
             concat!(
