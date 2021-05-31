@@ -84,6 +84,12 @@ impl<L: Language> NodeExpr<L> {
         }
     }
 
+    pub fn proof_to_string<N: Analysis<L>>(rules: &[&Rewrite<L, N>],
+        exprs: &Vec<Rc<NodeExpr<L>>>) -> String {
+            let strings = NodeExpr::to_strings(rules, exprs);
+            strings.join(" ")
+    }
+
     pub fn to_strings<N: Analysis<L>>(
         rules: &[&Rewrite<L, N>],
         exprs: &Vec<Rc<NodeExpr<L>>>,
@@ -133,6 +139,21 @@ impl<L: Language> NodeExpr<L> {
             .iter()
             .map(|child| {
                 let c = child.alpha_normalize_with(map);
+                Rc::new(c)
+            })
+            .collect();
+        head
+    }
+
+    pub fn remove_rewrite_dirs(&self) -> NodeExpr<L> {
+        let mut head = self.clone();
+        head.is_rewritten_backwards = false;
+        head.is_rewritten_forward = false;
+        head.children = head
+            .children
+            .iter()
+            .map(|child| {
+                let c = child.remove_rewrite_dirs();
                 Rc::new(c)
             })
             .collect();
@@ -774,7 +795,7 @@ impl<L: Language> History<L> {
                 let mage = usize::max(age.0, child.age);
                 let mprog = age.2.clone();
                 if mage < ages.get(&child.index).unwrap_or(&(usize::MAX, 0, prog.clone())).0 {
-                    ages.insert(child.index, (mage, current, mprog.clone()));
+                    ages.insert(child.index, (mage, child.index, mprog.clone()));
                     todo.push_back(child.index);
                 }
             }
@@ -789,11 +810,15 @@ impl<L: Language> History<L> {
     ) -> Vec<Rc<NodeExpr<L>>> {
         proof.reverse();
 
-        for i in 0..(proof.len() - 1) {
+        for i in 0..(proof.len()) {
             let mut replacement = clone_rc(&proof[i]);
-            replacement.rule_ref = proof[i + 1].rule_ref.clone();
-            replacement.is_direction_forward = proof[i + 1].is_direction_forward;
+            if i != proof.len()-1 {
+                replacement.rule_ref = proof[i + 1].rule_ref.clone();
+                replacement.is_direction_forward = !proof[i + 1].is_direction_forward;
+            }
+
             replacement = replacement.reverse_rewrite_dir();
+            
             proof[i] = Rc::new(replacement);
         }
 
@@ -816,6 +841,7 @@ impl<L: Language> History<L> {
 
             todo.push_back(including.1);
             let mut end = 0;
+            let mut found = false;
 
             while (todo.len() > 0) {
                 let current = todo.pop_front().unwrap();
@@ -828,14 +854,18 @@ impl<L: Language> History<L> {
                         if connection.age == including.0 {
                             // we found our final connection
                             end = child;
+                            found = true;
                             break;
                         }
                         todo.push_back(child);
                     }
                 }
+                if found { 
+                    break;
+                }
             }
             // make sure we did find our included node
-            assert!(end != 0);
+            assert!(found);
 
             let mut path: Vec<&RewriteConnection<L>> = Default::default();
 
@@ -980,7 +1010,9 @@ impl<L: Language> History<L> {
                 current_seen_memo.clone(),
                 right_ages.get(&right_node).unwrap().clone(),
             );
+            println!("Not reversed: {}", NodeExpr::proof_to_string(rules, &subproof));
             subproof = self.reverse_proof::<N>(subproof);
+            println!("Reversed: {}", NodeExpr::proof_to_string(rules, &subproof));
             let (mut restproof, final_var_memo) = self
                 .find_proof_paths(
                     egraph,
@@ -991,7 +1023,9 @@ impl<L: Language> History<L> {
                     current_seen_memo,
                 )
                 .unwrap();
+
             restproof.pop();
+            // TODO this removes rewrite dirs going back
             restproof.extend(subproof);
             return Some((restproof, final_var_memo));
         }
