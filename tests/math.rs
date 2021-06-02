@@ -472,16 +472,16 @@ egg::test_fn! {
         check_proof(&mut r, rules(), "(+ 1 (- a (* (- 2 1) a)))",
                                     "1",
                                     Some(vec!["(+ 1 (- a (=> (* (- 2 1) a))))",
-                                          "comm-mul =>",
-                                          "(+ 1 (- a (* a (=> (- 2 1)))))",
-                                          "metadata-eval =>",
-                                          "(+ 1 (- a (* a 1)))",
-                                          "<= mul-one",
-                                          "(+ 1 (=> (- a (<= a))))",
-                                          "cancel-sub =>",
-                                          "(=> (+ 1 0))",
-                                          "metadata-eval =>",
-                                          "1"]));
+                                    "comm-mul =>",
+                                    "(+ 1 (- a (* a (=> (- 2 1)))))",
+                                    "metadata-eval =>",
+                                    "(+ 1 (- a (* a 1)))",
+                                    "<= mul-one",
+                                    "(+ 1 (=> (- a (<= a))))",
+                                    "cancel-sub =>",
+                                    "(=> (+ 1 0))",
+                                    "metadata-eval =>",
+                                    "1"]));
     }
 }
 
@@ -495,7 +495,16 @@ egg::test_fn! {
         println!("running proof");
         check_proof(&mut r, rules(), "1",
                         "(+ 1 (- a (* (- 2 1) a)))",
-                        Some(vec!["1", "<= metadata-eval", "(<= (+ 1 0))", "<= cancel-sub", "(+ 1 (<= (- a (=> a))))", "mul-one =>", "(+ 1 (- a (* a 1)))", "<= comm-mul", "(+ 1 (- a (<= (* 1 a))))", "<= metadata-eval", "(+ 1 (- a (* (<= (- 2 1)) a)))"]));
+                        Some(vec!["1",
+                                    "<= metadata-eval",
+                                    "(<= (+ 1 0))",
+                                    "<= cancel-sub",
+                                    "(+ 1 (<= (- a (=> a))))",
+                                    "mul-one =>",
+                                    "(+ 1 (- a (* a 1)))",
+                                    "<= metadata-eval",
+                                    "(+ 1 (- a (* a (<= (- 2 1)))))",
+                                    "<= comm-mul", "(+ 1 (- a (<= (* (- 2 1) a))))"]));
     }
 }
 

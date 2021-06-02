@@ -160,6 +160,25 @@ impl<L: Language> NodeExpr<L> {
         head
     }
 
+    pub fn combine_dirs(&self, other: &Rc<NodeExpr<L>>) -> NodeExpr<L> {
+        let mut head = self.clone();
+        head.is_rewritten_backwards = head.is_rewritten_backwards || other.is_rewritten_backwards;
+        head.is_rewritten_forward = head.is_rewritten_forward || other.is_rewritten_forward;
+        assert!(other.children.len() == self.children.len());
+        let mut counter = 0;
+
+        head.children = head
+            .children
+            .iter()
+            .map(|child| {
+                let c = child.combine_dirs(&other.children[counter]);
+                counter += 1;
+                Rc::new(c)
+            })
+            .collect();
+        head
+    }
+
     pub fn reverse_rewrite_dir(&self) -> NodeExpr<L> {
         let mut head = self.clone();
         head.is_rewritten_backwards = false;
@@ -798,10 +817,14 @@ impl<L: Language> History<L> {
             let current = todo.pop_front().unwrap();
             let age = ages.get(&current).unwrap().clone();
             for child in &self.graph[current].children {
-                let mage = usize::max(age.0, child.age);
-                let mprog = age.2.clone();
+                let mut mage = age.0;
+                let mut mprog = age.2.clone();
+                if(child.age > mage) {
+                    mage = child.age;
+                    mprog = prog.clone();
+                }
                 if mage < ages.get(&child.index).unwrap_or(&(usize::MAX, 0, prog.clone())).0 {
-                    ages.insert(child.index, (mage, child.index, mprog.clone()));
+                    ages.insert(child.index, (mage, child.index, mprog));
                     todo.push_back(child.index);
                 }
             }
@@ -1038,9 +1061,12 @@ impl<L: Language> History<L> {
                 )
                 .unwrap();
 
-            restproof.pop();
-            // TODO BUG this removes rewrite dirs going back
-            restproof.extend(subproof);
+            let middle_prog = restproof.pop().unwrap();
+            let combined = subproof[0].clone().combine_dirs(&middle_prog);
+            restproof.push(Rc::new(combined));
+            for prog in subproof.into_iter().skip(1) {
+                restproof.push(prog);
+            }
             return Some((restproof, final_var_memo));
         }
 
