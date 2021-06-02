@@ -966,7 +966,7 @@ impl<L: Language> History<L> {
         egraph: &mut EGraph<L, N>,
         rules: &[&Rewrite<L, N>],
         left: Rc<NodeExpr<L>>,
-        current_var_memo: VarMemo<L>,
+        mut current_var_memo: VarMemo<L>,
         current_seen_memo: SeenMemo<L>,
         including: (usize, usize, Rc<NodeExpr<L>>, usize),
         is_by_age: bool, // otherwise, including.0 is an index
@@ -1057,17 +1057,51 @@ impl<L: Language> History<L> {
                 }
             }
             path.reverse();
-            self.apply_path(
+            let (mut resulting_proof, new_memo) = self.apply_path(
                 egraph,
                 rules,
                 left,
                 Rc::new(NodeExpr::new(None, vec![])),
                 true,
-                current_var_memo,
-                current_seen_memo,
+                current_var_memo.clone(),
+                current_seen_memo.clone(),
                 (path, vec![]),
             )
-            .unwrap()
+            .unwrap();
+
+            current_var_memo = new_memo;
+
+            // if age didn't decrease we need to apply more rewrites to "ground" term
+            let new_age = self.rec_age_calculation(egraph, resulting_proof.last().unwrap(), end);
+            if true {
+                let mut lowest_age = including.0;
+                let mut todo2: VecDeque<usize> = Default::default();
+                let mut seen: HashSet<usize> = Default::default();
+                todo2.push_back(end);
+                while (todo2.len() > 0) {
+                    let current = todo2.pop_front().unwrap();
+                    for connection in &self.graph[current].children {
+                        let child = connection.index;
+                        
+                        if connection.age < including.0 {
+                            if connection.age < lowest_age {
+                                lowest_age = connection.age;
+                            }
+                            if !seen.contains(&child) {
+                                seen.insert(child);
+                                todo2.push_back(child);
+                            }
+                        }
+                    }
+                }
+                //assert!(lowest_age < including.0);
+                let last = resulting_proof.pop().unwrap();
+                let (mut rest_proof, next_memo) = self.take_path_including(egraph, rules, last.clone(), current_var_memo, current_seen_memo, (lowest_age, end, last, 0), true);
+                resulting_proof.extend(rest_proof);
+                current_var_memo = next_memo;
+            }
+
+            (resulting_proof, current_var_memo)
         } else {
             let mut res = vec![];
             let mut memo = current_var_memo;
@@ -1113,7 +1147,7 @@ impl<L: Language> History<L> {
         rules: &[&Rewrite<L, N>],
         left: Rc<NodeExpr<L>>,
         right: Rc<NodeExpr<L>>,
-        current_var_memo: VarMemo<L>,
+        mut current_var_memo: VarMemo<L>,
         current_seen_memo: SeenMemo<L>,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
         if left.node == right.node {
@@ -1165,7 +1199,7 @@ impl<L: Language> History<L> {
         println!("Right age is {}", right_ages.get(&right_node).unwrap().0);
         println!("Age is {}", age);
 
-        if age <= left_ages.get(&left_node).unwrap().0 {
+        if age == left_ages.get(&left_node).unwrap().0 {
             println!("Taking path on left pattern");
             let (mut subproof, new_var_memo) = self.take_path_including(
                 egraph,
@@ -1176,20 +1210,23 @@ impl<L: Language> History<L> {
                 left_ages.get(&left_node).unwrap().clone(),
                 true
             );
+            current_var_memo = new_var_memo;
             println!("Finished left pattern");
-            let (restproof, final_var_memo) = self
+            let (restproof, second_memo) = self
                 .find_proof_paths(
                     egraph,
                     rules,
                     subproof.pop().unwrap(),
                     right,
-                    new_var_memo,
+                    current_var_memo,
                     current_seen_memo.clone(),
                 )
                 .unwrap();
+            current_var_memo = second_memo;
             subproof.extend(restproof);
-            return Some((subproof, final_var_memo));
-        } else if age <= right_ages.get(&right_node).unwrap().0 {
+
+            return Some((subproof, current_var_memo));
+        } else if age == right_ages.get(&right_node).unwrap().0 {
             println!("Taking path on right pattern");
             let (mut subproof, new_var_memo) = self.take_path_including(
                 egraph,
@@ -1457,6 +1494,8 @@ impl<L: Language> History<L> {
             direction = !direction;
         }
 
+        // congruence idea- apply rewrites between children found congruent
+        /*
         if let RuleReference::Congruence(eleft_o, eright_o) = &connection.rule_ref {
             let mut eleft = eleft_o;
             let mut eright = eright_o;
@@ -1489,7 +1528,7 @@ impl<L: Language> History<L> {
                 });
 
             return Some((proof, current_var_memo));
-        }
+        }*/
 
         let mut sast = match &connection.rule_ref {
             RuleReference::Index(i) => rules[*i]
