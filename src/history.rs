@@ -16,7 +16,7 @@ type SeenMemo<L> = HashTrieSet<(Rc<NodeExpr<L>>, Rc<NodeExpr<L>>)>;
 type VarMemo<L> = Vector<Rc<NodeExpr<L>>>;
 type ExprMemo<L> = HashTrieSet<Rc<NodeExpr<L>>>;
 type ResultFailCache<L> = HashMap<(Rc<NodeExpr<L>>, Rc<NodeExpr<L>>), usize>;
-type AgeRec<L> = HashMap<usize, (usize, usize, Rc<NodeExpr<L>>)>; // from node to (age, pointer, nodeexpr)
+type AgeRec<L> = HashMap<usize, (usize, usize, Rc<NodeExpr<L>>, usize)>; // from node to (age, pointer, nodeexpr, classpointer)
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 enum RuleReference<L> {
@@ -792,9 +792,9 @@ impl<L: Language> History<L> {
                     }
                     iter += 1;
                 });
-                ages.insert(current, (age, pointer, aprog));
+                ages.insert(current, (age, pointer, aprog, current));
             } else if enode == None {
-                ages.insert(current, (0, current, prog.clone()));
+                ages.insert(current, (0, current, prog.clone(), current));
             }
             
             for child in &self.graph[current].children {
@@ -827,12 +827,18 @@ impl<L: Language> History<L> {
                 let mut mage = age.0;
                 let mut pointer = age.1;
                 let mut mprog = age.2.clone();
-                if(child.age > mage) {
+                let mut classpointer = age.3;
+                // if the age is from this eclass, we point to current enode
+                if &mprog == prog {
+                    pointer = classpointer;
+                }
+                if child.age > mage {
                     mage = child.age;
+                    pointer = classpointer;  
                     mprog = prog.clone();
                 }
-                if mage < ages.get(&child.index).unwrap_or(&(usize::MAX, 0, prog.clone())).0 {
-                    ages.insert(child.index, (mage, pointer, mprog));
+                if mage < ages.get(&child.index).unwrap_or(&(usize::MAX, 0, prog.clone(), 0)).0 {
+                    ages.insert(child.index, (mage, pointer, mprog, classpointer));
                     todo.push_back(child.index);
                 }
             }
@@ -869,7 +875,7 @@ impl<L: Language> History<L> {
         left: Rc<NodeExpr<L>>,
         current_var_memo: VarMemo<L>,
         current_seen_memo: SeenMemo<L>,
-        including: (usize, usize, Rc<NodeExpr<L>>),
+        including: (usize, usize, Rc<NodeExpr<L>>, usize),
     ) -> (Vec<Rc<NodeExpr<L>>>, VarMemo<L>) {
         if including.2 == left {
             assert!(including.0 > 0);
@@ -882,7 +888,7 @@ impl<L: Language> History<L> {
             let mut end = 0;
             let mut found = false;
 
-            assert!(self.graph[including.1].node.clone().map_children(|id| egraph.find(id)) == left.node.as_ref().unwrap().clone());
+            /*
             for connection in &self.graph[including.1].children {
                 match &connection.rule_ref {
                     RuleReference::Pattern((searcher, applier, _)) => {
@@ -893,7 +899,9 @@ impl<L: Language> History<L> {
                     }
                     _ => {}
                 }
-            }
+            }*/
+
+            assert!(self.graph[including.1].node.clone().map_children(|id| egraph.find(id)) == left.node.as_ref().unwrap().clone());
 
             while (todo.len() > 0) {
                 let current = todo.pop_front().unwrap();
@@ -951,7 +959,7 @@ impl<L: Language> History<L> {
                 rules,
                 left,
                 Rc::new(NodeExpr::new(None, vec![])),
-                false,
+                true,
                 current_var_memo,
                 current_seen_memo,
                 (path, vec![]),
@@ -1167,7 +1175,7 @@ impl<L: Language> History<L> {
             let mut is_backwards = false;
             if i < leftsize {
                 connection = leftpath[i];
-                is_backwards = true;
+                is_backwards = !is_left_backwards;
             } else {
                 connection = rightpath[i - leftsize];
             }
