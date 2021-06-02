@@ -161,6 +161,12 @@ impl<L: Language> NodeExpr<L> {
     }
 
     pub fn combine_dirs(&self, other: &Rc<NodeExpr<L>>) -> NodeExpr<L> {
+        if self.node == None {
+            return clone_rc(other);
+        } else if other.node == None {
+            return self.clone();
+        }
+
         let mut head = self.clone();
         head.is_rewritten_backwards = head.is_rewritten_backwards || other.is_rewritten_backwards;
         head.is_rewritten_forward = head.is_rewritten_forward || other.is_rewritten_forward;
