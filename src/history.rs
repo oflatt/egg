@@ -145,6 +145,17 @@ impl<L: Language> NodeExpr<L> {
         head
     }
 
+    fn deep_copy(&self) -> NodeExpr<L> {
+        let mut head = self.clone();
+        head.children = head
+            .children
+            .iter()
+            .map(|child| {
+                Rc::new(child.deep_copy())
+            }).collect();
+        head
+    }
+
     pub fn count_forward(&self) -> usize {
         self.count_specified(true)
     }
@@ -322,7 +333,7 @@ impl<L: Language> NodeExpr<L> {
                     let mut added = false;
                     if let Some(map) = substmap {
                         if let Some(substitution) = map.get(v) {
-                            nodeexprs.push(substitution.clone());
+                            nodeexprs.push(Rc::new(substitution.deep_copy()));
                             added = true;
                         }
                     }
