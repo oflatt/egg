@@ -958,10 +958,13 @@ impl<L: Language> History<L> {
         current_var_memo: VarMemo<L>,
         current_seen_memo: SeenMemo<L>,
         including: (usize, usize, Rc<NodeExpr<L>>, usize),
+        is_by_age: bool, // otherwise, including.0 is an index
     ) -> (Vec<Rc<NodeExpr<L>>>, VarMemo<L>) {
         // use pointer equality- we want the specific sub-expression
         if &*including.2 as *const NodeExpr<L> == &*left as *const NodeExpr<L> {
-            assert!(including.0 > 0);
+            if is_by_age {
+                assert!(including.0 > 0);
+            }
             let mut prev: HashMap<usize, usize> = Default::default();
             let mut prevc: HashMap<usize, &RewriteConnection<L>> = Default::default();
             let mut todo: VecDeque<usize> = VecDeque::new();
@@ -990,8 +993,8 @@ impl<L: Language> History<L> {
                 let current = todo.pop_front().unwrap();
                 for connection in &self.graph[current].children {
                     let child = connection.index;
-
-                    if connection.age == including.0 {
+                    
+                    if (is_by_age && (connection.age == including.0)) || ((!is_by_age) && (child == including.0)) {
                         // we found our final connection
                         prev.insert(child, current);
                         prevc.insert(child, &connection);
@@ -1066,6 +1069,7 @@ impl<L: Language> History<L> {
                     memo.clone(),
                     current_seen_memo.clone(),
                     including.clone(),
+                    is_by_age,
                 );
                 if proof.len() != 0 {
                     res = proof;
@@ -1159,6 +1163,7 @@ impl<L: Language> History<L> {
                 current_var_memo,
                 current_seen_memo.clone(),
                 left_ages.get(&left_node).unwrap().clone(),
+                true
             );
             println!("Finished left pattern");
             let (restproof, final_var_memo) = self
@@ -1182,6 +1187,7 @@ impl<L: Language> History<L> {
                 current_var_memo,
                 current_seen_memo.clone(),
                 right_ages.get(&right_node).unwrap().clone(),
+                true,
             );
             println!("Not reversed: {}", NodeExpr::proof_to_string(rules, &subproof));
             subproof = self.reverse_proof::<N>(subproof);
@@ -1213,6 +1219,7 @@ impl<L: Language> History<L> {
                 current_var_memo,
                 current_seen_memo.clone(),
                 (age, left_node, left, 0),
+                true
             );
             println!("Finished left pattern");
             let (restproof, final_var_memo) = self
@@ -1438,8 +1445,10 @@ impl<L: Language> History<L> {
         if is_backwards {
             direction = !direction;
         }
-        /*
-        if let RuleReference::Congruence(mut eleft, mut eright) = &connection.rule_ref {
+
+        if let RuleReference::Congruence(eleft_o, eright_o) = &connection.rule_ref {
+            let mut eleft = eleft_o;
+            let mut eright = eright_o;
             if !direction {
                 std::mem::swap(&mut eleft, &mut eright);
             }
@@ -1447,19 +1456,27 @@ impl<L: Language> History<L> {
             let mut proof = vec![left];
 
             let mut rindecies = vec![];
-            eright.for_each(|child_index| rindecies.push_back(child_index));
+            eright.for_each(|child_index| rindecies.push(child_index));
             let mut counter = 0;
             eleft.for_each(|child_index| {
-                let current = proof.pop().unwrap();
-
-
-
+                if child_index != rindecies[counter] {
+                    println!("applying congruence child {}", counter);
+                    let mut current = proof.pop().unwrap();
+                    let ages = self.rec_age_calculation(egraph, &current.children[counter], usize::from(child_index));
+                    let left_result = &ages[&usize::from(child_index)];
+                    assert!(left_result.3 != usize::from(rindecies[counter]));
+                    assert!(egraph.find(Id::from(left_result.3)) == egraph.find(rindecies[counter]));
+                    let (subproof, new_memo) = self.take_path_including(egraph, rules,
+                        current.clone(), current_var_memo.clone(), seen_memo.clone(),
+                        (usize::from(rindecies[counter]), left_result.3, current.children[counter].clone(), 0), false);
+                    current_var_memo = new_memo;
+                    proof.extend(subproof);
+                }
                 counter += 1;
-            }
+                });
 
-            find path between children
-            apply rewrites to children
-        }*/
+            return Some((proof, current_var_memo));
+        }
 
         let mut sast = match &connection.rule_ref {
             RuleReference::Index(i) => rules[*i]

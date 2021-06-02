@@ -564,7 +564,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 }
                 
                 let mut temp_parents: Vec<(L, Id, L)> = parents.iter().map(|(n, id)| {
-                    let updated = n.clone().map_children(|child| self.find(child));
+                    let mut updated = n.clone();
+                    updated.update_children(|child| self.find(child));
                     (updated, self.find(*id), n.clone())
                 }).collect();
                 temp_parents.sort_unstable();
@@ -580,8 +581,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 for (n, e, on) in temp_parents {
                     if let Some(old) = self.memo.insert(n.clone(), e) {
                         to_union.push(((n.clone(), old), (on, e)));
-                        parents.push((n, e));
                     }
+                    parents.push((n, e));
                 }
 
                 self.propagate_metadata(&parents);
