@@ -1460,17 +1460,19 @@ impl<L: Language> History<L> {
             let mut counter = 0;
             eleft.for_each(|child_index| {
                 if child_index != rindecies[counter] {
-                    println!("applying congruence child {}", counter);
-                    let mut current = proof.pop().unwrap();
-                    let ages = self.rec_age_calculation(egraph, &current.children[counter], usize::from(child_index));
+                    let ages = self.rec_age_calculation(egraph, &proof[proof.len()-1].children[counter], usize::from(child_index));
                     let left_result = &ages[&usize::from(child_index)];
-                    assert!(left_result.3 != usize::from(rindecies[counter]));
-                    assert!(egraph.find(Id::from(left_result.3)) == egraph.find(rindecies[counter]));
-                    let (subproof, new_memo) = self.take_path_including(egraph, rules,
-                        current.clone(), current_var_memo.clone(), seen_memo.clone(),
-                        (usize::from(rindecies[counter]), left_result.3, current.children[counter].clone(), 0), false);
-                    current_var_memo = new_memo;
-                    proof.extend(subproof);
+                    
+                    if left_result.3 != usize::from(rindecies[counter]) {
+                        println!("applying congruence child {}", counter);
+                        let mut current = proof.pop().unwrap();
+                        assert!(egraph.find(Id::from(left_result.3)) == egraph.find(rindecies[counter]));
+                        let (subproof, new_memo) = self.take_path_including(egraph, rules,
+                            current.clone(), current_var_memo.clone(), seen_memo.clone(),
+                            (usize::from(rindecies[counter]), left_result.3, current.children[counter].clone(), 0), false);
+                        current_var_memo = new_memo;
+                        proof.extend(subproof);
+                    }
                 }
                 counter += 1;
                 });
