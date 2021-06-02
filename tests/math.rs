@@ -457,7 +457,7 @@ egg::test_fn! {
     @check |mut r: Runner<Math, ConstantFold>| {
         check_proof(&mut r, rules(), "(+ (+ (+ a 0) 0) 0)",
                     "a",
-                    Some(vec!["(+ (+ (+ a 0) 0) 0)", "<= add-zero", "(<= (+ (+ a 0) 0))", "<= add-zero", "(<= (+ a 0))", "<= add-zero", "(<= a)"]));
+                    Some(vec!["(+ (+ (+ a 0) 0) 0)", "<= add-zero", "(+ (+ (<= a) 0) 0)", "<= add-zero", "(+ (<= a) 0)", "<= add-zero", "(<= a)"]));
     }
 }
 

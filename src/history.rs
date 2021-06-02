@@ -914,6 +914,13 @@ impl<L: Language> History<L> {
             for i in 0..res.len() {
                 let mut new_node = clone_rc(&left);
                 new_node.children[counter] = res[i].clone();
+                new_node.rule_ref = res[i].rule_ref.clone();
+                new_node.is_direction_forward = res[i].is_direction_forward;
+                if i != 0 {
+                    new_node.is_rewritten_forward = false;
+                    new_node.is_rewritten_backwards = false;
+                }
+
                 res[i] = Rc::new(new_node);
             }
 
@@ -1018,7 +1025,7 @@ impl<L: Language> History<L> {
                     egraph,
                     rules,
                     left,
-                    subproof[0].clone(),
+                    Rc::new(subproof[0].clone().remove_rewrite_dirs()),
                     new_var_memo,
                     current_seen_memo,
                 )
