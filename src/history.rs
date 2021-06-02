@@ -617,9 +617,10 @@ impl<L: Language> History<L> {
         return 0;
     }
 
-    fn find_youngest_recursive<'a>(
+    fn find_youngest_recursive<'a, N: Analysis<L>>(
         &'a self,
         current: usize,
+        egraph: &mut EGraph<L, N>,
         left: &Rc<NodeExpr<L>>,
         right: &Rc<NodeExpr<L>>,
         left_ages: &AgeRec<L>,
@@ -638,18 +639,22 @@ impl<L: Language> History<L> {
         let mut last_found_left_age: usize = usize::MAX;
         let mut last_found_right_age: usize = usize::MAX;
 
-        if &self.graph[current].node == right.node.as_ref().unwrap()
-            || &self.graph[current].node == left.node.as_ref().unwrap()
+        let cnode = self.graph[current].node.clone().map_children(|id| egraph.find(id));
+
+        if &cnode == right.node.as_ref().unwrap()
+            || &cnode == left.node.as_ref().unwrap()
         {
-            let isleft = &self.graph[current].node == left.node.as_ref().unwrap();
+            let isleft = &cnode == left.node.as_ref().unwrap();
             if isleft {
                 has_found_left = true;
                 last_found_left_index = current;
                 last_found_left_age = left_ages[&current].0;
+                println!("found left: {}", last_found_left_age);
             } else {
                 has_found_right = true;
                 last_found_right_index = current;
                 last_found_right_age = right_ages[&current].0;
+                println!("found right: {}", last_found_right_age);
             }
         }
 
@@ -666,6 +671,7 @@ impl<L: Language> History<L> {
                     mut child_right_age,
                 ) = self.find_youngest_recursive(
                     child.index,
+                    egraph,
                     left,
                     right,
                     left_ages,
@@ -968,6 +974,7 @@ impl<L: Language> History<L> {
         let right_ages = self.rec_age_calculation(egraph, &right, representative);
         self.find_youngest_recursive(
             representative,
+            egraph,
             &left,
             &right,
             &left_ages,
@@ -1032,7 +1039,7 @@ impl<L: Language> History<L> {
                 .unwrap();
 
             restproof.pop();
-            // TODO this removes rewrite dirs going back
+            // TODO BUG this removes rewrite dirs going back
             restproof.extend(subproof);
             return Some((restproof, final_var_memo));
         }
