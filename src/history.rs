@@ -510,6 +510,7 @@ impl<L: Language> History<L> {
         //println!("adding union proof {} and {}", fromid, toid);
         let from_node = NodeExpr::from_pattern_ast(egraph, &from, &subst, None, None).0;
         let to_node = NodeExpr::from_pattern_ast(egraph, &to, &subst, None, None).0;
+
         self.add_connection(
             from_node.node.as_ref().unwrap().clone(),
             to_node.node.unwrap(),
@@ -824,13 +825,14 @@ impl<L: Language> History<L> {
             let age = ages.get(&current).unwrap().clone();
             for child in &self.graph[current].children {
                 let mut mage = age.0;
+                let mut pointer = age.1;
                 let mut mprog = age.2.clone();
                 if(child.age > mage) {
                     mage = child.age;
                     mprog = prog.clone();
                 }
                 if mage < ages.get(&child.index).unwrap_or(&(usize::MAX, 0, prog.clone())).0 {
-                    ages.insert(child.index, (mage, child.index, mprog));
+                    ages.insert(child.index, (mage, pointer, mprog));
                     todo.push_back(child.index);
                 }
             }
@@ -870,28 +872,46 @@ impl<L: Language> History<L> {
         including: (usize, usize, Rc<NodeExpr<L>>),
     ) -> (Vec<Rc<NodeExpr<L>>>, VarMemo<L>) {
         if including.2 == left {
+            assert!(including.0 > 0);
             let mut prev: HashMap<usize, usize> = Default::default();
             let mut prevc: HashMap<usize, &RewriteConnection<L>> = Default::default();
             let mut todo: VecDeque<usize> = VecDeque::new();
 
+            println!("found including path: {}", left.to_string());
             todo.push_back(including.1);
             let mut end = 0;
             let mut found = false;
+
+            assert!(self.graph[including.1].node.clone().map_children(|id| egraph.find(id)) == left.node.as_ref().unwrap().clone());
+            for connection in &self.graph[including.1].children {
+                match &connection.rule_ref {
+                    RuleReference::Pattern((searcher, applier, _)) => {
+                        println!("Rule found: {}, {}", searcher, applier);
+                    }
+                    RuleReference::Index(index) => {
+                        println!("Rule index found: {}, {}", rules[*index].searcher.get_ast().unwrap(), rules[*index].applier.get_ast().unwrap());
+                    }
+                    _ => {}
+                }
+            }
 
             while (todo.len() > 0) {
                 let current = todo.pop_front().unwrap();
                 for connection in &self.graph[current].children {
                     let child = connection.index;
+
+                    if connection.age == including.0 {
+                        // we found our final connection
+                        prev.insert(child, current);
+                        prevc.insert(child, &connection);
+                        end = child;
+                        found = true;
+                        break;
+                    }
+
                     if prev.get(&child) == None {
                         prev.insert(child, current);
                         prevc.insert(child, &connection);
-
-                        if connection.age == including.0 {
-                            // we found our final connection
-                            end = child;
-                            found = true;
-                            break;
-                        }
                         todo.push_back(child);
                     }
                 }
@@ -914,12 +934,24 @@ impl<L: Language> History<L> {
                 path.push(prevc.get(&trail).unwrap());
                 trail = p;
             }
-            println!("applying found path");
+            println!("applying found path, size {}", path.len());
+            for connection in &path {
+                match &connection.rule_ref {
+                    RuleReference::Pattern((searcher, applier, _)) => {
+                        println!("Rule found: {}, {}", searcher, applier);
+                    }
+                    RuleReference::Index(index) => {
+                        println!("Rule index found: {}, {}", rules[*index].searcher.get_ast().unwrap(), rules[*index].applier.get_ast().unwrap());
+                    }
+                    _ => {}
+                }
+            }
             self.apply_path(
                 egraph,
                 rules,
                 left,
                 Rc::new(NodeExpr::new(None, vec![])),
+                false,
                 current_var_memo,
                 current_seen_memo,
                 (path, vec![]),
@@ -978,6 +1010,7 @@ impl<L: Language> History<L> {
                 rules,
                 left,
                 right,
+                false,
                 current_var_memo,
                 current_seen_memo,
                 (vec![], vec![]),
@@ -1106,6 +1139,7 @@ impl<L: Language> History<L> {
             rules,
             left,
             right,
+            false,
             current_var_memo,
             current_seen_memo,
             (leftpath, rightpath),
@@ -1118,6 +1152,7 @@ impl<L: Language> History<L> {
         rules: &[&Rewrite<L, N>],
         left: Rc<NodeExpr<L>>,
         right: Rc<NodeExpr<L>>,
+        is_left_backwards: bool,
         var_memo: VarMemo<L>,
         seen_memo: SeenMemo<L>,
         (leftpath, rightpath): (Vec<&RewriteConnection<L>>, Vec<&RewriteConnection<L>>),
