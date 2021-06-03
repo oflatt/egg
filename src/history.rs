@@ -442,6 +442,12 @@ impl<L: Language> History<L> {
         subst: Subst,
         egraph: &EGraph<L, N>,
     ) {
+        let mut age = self.age_counter;
+        self.age_counter += 1;
+        if let RuleReference::Congruence = rule {
+            self.age_counter -= 1;
+            age = 0;
+        }
         let cfrom = from.clone().map_children(|id| egraph.find(id));
         let cto = to.clone().map_children(|id| egraph.find(id));
         let currentfrom = self.find_enode_in(&cfrom, fromid, egraph);
@@ -453,7 +459,7 @@ impl<L: Language> History<L> {
             subst: subst.clone(),
             is_direction_forward: true,
             rule_ref: rule.clone(),
-            age: self.age_counter,
+            age: age,
         };
 
         let tor = RewriteConnection {
@@ -461,12 +467,11 @@ impl<L: Language> History<L> {
             subst: subst.clone(),
             is_direction_forward: false,
             rule_ref: rule.clone(),
-            age: self.age_counter,
+            age: age,
         };
 
         self.graph[currentfrom].children.push(fromr);
         self.graph[currentto].children.push(tor);
-        self.age_counter += 1;
     }
 
     pub fn union<N: Analysis<L>>(
@@ -477,7 +482,7 @@ impl<L: Language> History<L> {
         toid: Id,
         egraph: &EGraph<L, N>,
     ) {
-        //println!("adding union {} and {}", fromid, toid);
+        println!("adding union {} and {}", fromid, toid);
         self.add_connection(
             from,
             to,
@@ -507,7 +512,7 @@ impl<L: Language> History<L> {
         subst: Subst,
         reason: String,
     ) {
-        //println!("adding union proof {} and {}", fromid, toid);
+        println!("adding union proof {} and {}", fromid, toid);
         let from_node = NodeExpr::from_pattern_ast(egraph, &from, &subst, None, None).0;
         let to_node = NodeExpr::from_pattern_ast(egraph, &to, &subst, None, None).0;
 
@@ -535,7 +540,7 @@ impl<L: Language> History<L> {
             applications.affected_classes,
             applications.from_classes
         ) {
-            //println!("adding application {} and {}", from_class, class);
+            println!("adding application {} and {}", from_class, class);
             let cfrom = from.clone().map_children(|child| egraph.find(child));
             let cto = to.clone().map_children(|child| egraph.find(child));
             self.add_connection(
@@ -675,12 +680,10 @@ impl<L: Language> History<L> {
                 has_found_left = true;
                 last_found_left_index = current;
                 last_found_left_age = left_ages[&current].0;
-                //println!("found left: {}", last_found_left_age);
             } else {
                 has_found_right = true;
                 last_found_right_index = current;
                 last_found_right_age = right_ages[&current].0;
-                //println!("found right: {}", last_found_right_age);
             }
         }
 
@@ -883,7 +886,7 @@ impl<L: Language> History<L> {
             let mut prevc: HashMap<usize, &RewriteConnection<L>> = Default::default();
             let mut todo: VecDeque<usize> = VecDeque::new();
 
-            //println!("found including path: {}", left.to_string());
+            println!("found including path: {}", left.to_string());
             todo.push_back(including.1);
             let mut end = 0;
             let mut found = false;
@@ -892,10 +895,10 @@ impl<L: Language> History<L> {
             for connection in &self.graph[including.1].children {
                 match &connection.rule_ref {
                     RuleReference::Pattern((searcher, applier, _)) => {
-                        //println!("Rule found: {}, {}", searcher, applier);
+                        println!("Rule found: {}, {}", searcher, applier);
                     }
                     RuleReference::Index(index) => {
-                        //println!("Rule index found: {}, {}", rules[*index].searcher.get_ast().unwrap(), rules[*index].applier.get_ast().unwrap());
+                        println!("Rule index found: {}, {}", rules[*index].searcher.get_ast().unwrap(), rules[*index].applier.get_ast().unwrap());
                     }
                     _ => {}
                 }
@@ -929,6 +932,7 @@ impl<L: Language> History<L> {
             }
             // make sure we did find our included node
             assert!(found);
+            assert!(&self.graph[end].node.clone().map_children(|id| egraph.find(id)) != left.node.as_ref().unwrap());
 
             let mut path: Vec<&RewriteConnection<L>> = Default::default();
 
@@ -942,18 +946,21 @@ impl<L: Language> History<L> {
                 path.push(prevc.get(&trail).unwrap());
                 trail = p;
             }
-            //println!("applying found path, size {}", path.len());
+            println!("end enode {}", enode_to_string(&self.graph[end].node.clone().map_children(|id| egraph.find(id))));
+            println!("start enode {}", enode_to_string(left.node.as_ref().unwrap()));
+            println!("applying found path, size {}", path.len());
             for connection in &path {
                 match &connection.rule_ref {
                     RuleReference::Pattern((searcher, applier, _)) => {
-                        //println!("Rule found: {}, {}", searcher, applier);
+                        println!("Rule found: {}, {}, {}", searcher, applier, connection.is_direction_forward);
                     }
                     RuleReference::Index(index) => {
-                        //println!("Rule index found: {}, {}", rules[*index].searcher.get_ast().unwrap(), rules[*index].applier.get_ast().unwrap());
+                        println!("Rule index found: {}, {}, {}", rules[*index].searcher.get_ast().unwrap(), rules[*index].applier.get_ast().unwrap(), connection.is_direction_forward);
                     }
                     _ => {}
                 }
             }
+            path.reverse();
             self.apply_path(
                 egraph,
                 rules,
@@ -1057,12 +1064,12 @@ impl<L: Language> History<L> {
             &mut middle_node,
         );
         assert!(age < usize::MAX);
-        //println!("Left age is {}", left_ages.get(&left_node).unwrap().0);
-        //println!("Right age is {}", right_ages.get(&right_node).unwrap().0);
-        //println!("Age is {}", age);
+        println!("Left age is {}", left_ages.get(&left_node).unwrap().0);
+        println!("Right age is {}", right_ages.get(&right_node).unwrap().0);
+        println!("Age is {}", age);
 
         if age == left_ages.get(&left_node).unwrap().0 {
-            //println!("Taking path on left pattern");
+            println!("Taking path on left pattern");
             let (mut subproof, new_var_memo) = self.take_path_including(
                 egraph,
                 rules,
@@ -1071,7 +1078,7 @@ impl<L: Language> History<L> {
                 current_seen_memo.clone(),
                 left_ages.get(&left_node).unwrap().clone(),
             );
-            //println!("Finished left pattern");
+            println!("Finished left pattern");
             let (restproof, final_var_memo) = self
                 .find_proof_paths(
                     egraph,
@@ -1085,7 +1092,7 @@ impl<L: Language> History<L> {
             subproof.extend(restproof);
             return Some((subproof, final_var_memo));
         } else if age == right_ages.get(&right_node).unwrap().0 {
-            //println!("Taking path on right pattern");
+            println!("Taking path on right pattern");
             let (mut subproof, new_var_memo) = self.take_path_including(
                 egraph,
                 rules,
@@ -1094,9 +1101,9 @@ impl<L: Language> History<L> {
                 current_seen_memo.clone(),
                 right_ages.get(&right_node).unwrap().clone(),
             );
-            //println!("Not reversed: {}", NodeExpr::proof_to_string(rules, &subproof));
+            println!("Not reversed: {}", NodeExpr::proof_to_string(rules, &subproof));
             subproof = self.reverse_proof::<N>(subproof);
-            //println!("Reversed: {}", NodeExpr::proof_to_string(rules, &subproof));
+            println!("Reversed: {}", NodeExpr::proof_to_string(rules, &subproof));
             let (mut restproof, final_var_memo) = self
                 .find_proof_paths(
                     egraph,
@@ -1198,7 +1205,7 @@ impl<L: Language> History<L> {
         }
 
         if proof[proof.len() - 1].node != right.node {
-            //println!("recur proof");
+            println!("recur proof");
             let latest = proof.pop().unwrap();
             let rest_of_proof = self.find_proof_paths(
                 egraph,
@@ -1215,8 +1222,7 @@ impl<L: Language> History<L> {
                 return None;
             }
         } else {
-            //println!("Nodes the same ");
-            assert!(right.node != None);
+            println!("Nodes the same ");
             let (success, vmemo) = self.prove_children_equal(
                 egraph,
                 rules,
@@ -1254,7 +1260,7 @@ impl<L: Language> History<L> {
         let (right, new_memo_2) = History::<L>::get_from_var_memo(&right_input, current_var_memo);
         current_var_memo = new_memo_2;
 
-        //println!("Prove {} and {}", left.to_string(), right.to_string());
+        println!("Prove {} and {}", left.to_string(), right.to_string());
 
         let seen_entry = (
             left.clone().alpha_normalize(),
@@ -1385,7 +1391,7 @@ impl<L: Language> History<L> {
             std::mem::swap(&mut sast, &mut rast);
         }
 
-        //println!("Rule {} to {}", sast, rast);
+        println!("Rule {} to {}", sast, rast);
 
         let (search_pattern, first_var_memo) = NodeExpr::from_pattern_ast::<N>(
             egraph,
@@ -1396,7 +1402,7 @@ impl<L: Language> History<L> {
         );
         current_var_memo = first_var_memo;
 
-        //println!("Matching searcher");
+        println!("Matching searcher");
         let maybe_subproof = self.find_proof_paths(
             egraph,
             rules,
@@ -1405,7 +1411,7 @@ impl<L: Language> History<L> {
             current_var_memo,
             seen_memo.clone(),
         );
-        //println!("After searcher");
+        println!("After searcher");
         if maybe_subproof == None {
             return None;
         }
