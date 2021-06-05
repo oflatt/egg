@@ -145,6 +145,28 @@ impl<L: Language> NodeExpr<L> {
         head
     }
 
+    pub fn count_forwads(&self) -> usize {
+        self.count_specified(true)
+    }
+
+    pub fn count_backwards(&self) -> usize {
+        self.count_specified(false)
+    }
+
+    fn count_specified(&self, forward: bool) -> usize {
+        let mut count = 0;
+        if forward && self.is_rewritten_forward {
+            count += 1;
+        } else if !forward && self.is_rewritten_backwards {
+            count += 1;
+        }
+
+        for child in self.children {
+            count += child.count_specified(forward);
+        }
+        count
+    }
+
     pub fn remove_rewrite_dirs(&self) -> NodeExpr<L> {
         let mut head = self.clone();
         head.is_rewritten_backwards = false;
@@ -622,6 +644,51 @@ impl<L: Language> History<L> {
         }
     }
 
+    fn check_proof<N: Analysis<L>>(&self,
+        rules: &[&Rewrite<L, N>],
+        proof: Proof<L>) -> bool {
+        
+        
+        for i in 0..proof.len() {
+            let current = &proof[i];
+            let mut num_forward = 0;
+            let mut num_backward = 0;
+            if i > 0 {
+                if !proof[i-1].is_direction_forward {
+                    num_backward = 1;
+                }
+            }
+            if i < proof.len()-1 {
+                if proof[i+1].is_direction_forward {
+                    num_forward = 1;
+                }
+            }
+
+            if current.count_forward() != num_forward {
+                return false;
+            } else if current.count_backwards() != num_backward {
+                return false;
+            }
+        }
+
+        for i in 0..proof.len()-1 {
+            let current = &proof[i];
+
+            match &current.rule_ref {
+                RuleReference::Congruence => { return false }
+                RuleReference::Index(i) => {
+                    
+                }
+                RuleReference::Pattern((left, right, reason)) => {
+                    
+                }
+            }
+        }
+
+
+        true
+    }
+
     fn find_leaf_node(&self, start: usize) -> usize {
         let mut seen: HashSet<usize> = Default::default();
         let mut todo = start;
@@ -831,10 +898,8 @@ impl<L: Language> History<L> {
                 let mut pointer = age.1;
                 let mut mprog = age.2.clone();
                 let mut classpointer = age.3;
-                // if the age is from this eclass, we point to current enode
-                if &mprog == prog {
-                    pointer = classpointer;
-                }
+                // if the age is from this eclass, we point to represented enode
+              
                 if child.age > mage {
                     mage = child.age;
                     pointer = classpointer;  
@@ -880,7 +945,8 @@ impl<L: Language> History<L> {
         current_seen_memo: SeenMemo<L>,
         including: (usize, usize, Rc<NodeExpr<L>>, usize),
     ) -> (Vec<Rc<NodeExpr<L>>>, VarMemo<L>) {
-        if including.2 == left {
+        // use pointer equality- we want the specific sub-expression
+        if &*including.2 as *const NodeExpr<L> == &*left as *const NodeExpr<L> {
             assert!(including.0 > 0);
             let mut prev: HashMap<usize, usize> = Default::default();
             let mut prevc: HashMap<usize, &RewriteConnection<L>> = Default::default();
@@ -946,6 +1012,8 @@ impl<L: Language> History<L> {
                 path.push(prevc.get(&trail).unwrap());
                 trail = p;
             }
+            println!("end index {}", end);
+            println!("start index {}", including.1);
             println!("end enode {}", enode_to_string(&self.graph[end].node.clone().map_children(|id| egraph.find(id))));
             println!("start enode {}", enode_to_string(left.node.as_ref().unwrap()));
             println!("applying found path, size {}", path.len());
