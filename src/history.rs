@@ -673,16 +673,28 @@ impl<L: Language> History<L> {
         }
 
         for i in 0..proof.len()-1 {
-            let current = &proof[i];
-
-            match &current.rule_ref {
-                RuleReference::Congruence => { return false }
-                RuleReference::Index(i) => {
-                    
-                }
-                RuleReference::Pattern((left, right, reason)) => {
-                    
-                }
+            let connection = &proof[i];
+            
+            let mut sast = match &connection.rule_ref {
+                RuleReference::Index(i) => rules[*i]
+                    .searcher
+                    .get_ast()
+                    .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
+                RuleReference::Pattern((left, _right, _reaon)) => &left,
+                RuleReference::Congruence => return false,
+            };
+    
+            let mut rast = match &connection.rule_ref {
+                RuleReference::Index(i) => rules[*i]
+                    .applier
+                    .get_ast()
+                    .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
+                RuleReference::Pattern((_left, right, _reaon)) => right,
+                RuleReference::Congruence => return false,
+            };
+    
+            if connection.is_direction_forward {
+                //let rewritten = current.node.as_ref().unwrap().clone().rewrite(egraph, sast, rast, connection.subst, Default::default());
             }
         }
 
@@ -747,11 +759,11 @@ impl<L: Language> History<L> {
             if isleft {
                 has_found_left = true;
                 last_found_left_index = current;
-                last_found_left_age = left_ages[&current].0;
+                last_found_left_age = left_ages.get(&current).unwrap().0;
             } else {
                 has_found_right = true;
                 last_found_right_index = current;
-                last_found_right_age = right_ages[&current].0;
+                last_found_right_age = right_ages.get(&current).unwrap().0;
             }
         }
 
@@ -1137,7 +1149,7 @@ impl<L: Language> History<L> {
         println!("Right age is {}", right_ages.get(&right_node).unwrap().0);
         println!("Age is {}", age);
 
-        if age == left_ages.get(&left_node).unwrap().0 {
+        if age <= left_ages.get(&left_node).unwrap().0 {
             println!("Taking path on left pattern");
             let (mut subproof, new_var_memo) = self.take_path_including(
                 egraph,
@@ -1160,7 +1172,7 @@ impl<L: Language> History<L> {
                 .unwrap();
             subproof.extend(restproof);
             return Some((subproof, final_var_memo));
-        } else if age == right_ages.get(&right_node).unwrap().0 {
+        } else if age <= right_ages.get(&right_node).unwrap().0 {
             println!("Taking path on right pattern");
             let (mut subproof, new_var_memo) = self.take_path_including(
                 egraph,
@@ -1191,43 +1203,30 @@ impl<L: Language> History<L> {
                 restproof.push(prog);
             }
             return Some((restproof, final_var_memo));
+        } else {
+            println!("Top level path");
+            let (mut subproof, new_var_memo) = self.take_path_including(
+                egraph,
+                rules,
+                left.clone(),
+                current_var_memo,
+                current_seen_memo.clone(),
+                (age, left_node, left, 0),
+            );
+            println!("Finished left pattern");
+            let (restproof, final_var_memo) = self
+                .find_proof_paths(
+                    egraph,
+                    rules,
+                    subproof.pop().unwrap(),
+                    right,
+                    new_var_memo,
+                    current_seen_memo.clone(),
+                )
+                .unwrap();
+            subproof.extend(restproof);
+            return Some((subproof, final_var_memo));
         }
-
-        let mut leftpath: Vec<&RewriteConnection<L>> = Default::default();
-        let mut rightpath: Vec<&RewriteConnection<L>> = Default::default();
-
-        let mut trail = left_node;
-        while (true) {
-            if (trail == middle_node) {
-                break;
-            }
-            let p = prev[&trail];
-            assert!(trail != p);
-            leftpath.push(prevc.get(&trail).unwrap());
-            trail = p;
-        }
-        trail = right_node;
-        while (true) {
-            if (trail == middle_node) {
-                break;
-            }
-            let p = prev[&trail];
-            assert!(trail != p);
-            rightpath.push(prevc.get(&trail).unwrap());
-            trail = p;
-        }
-        rightpath.reverse();
-
-        self.apply_path(
-            egraph,
-            rules,
-            left,
-            right,
-            false,
-            current_var_memo,
-            current_seen_memo,
-            (leftpath, rightpath),
-        )
     }
 
     fn apply_path<N: Analysis<L>>(
