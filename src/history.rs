@@ -145,7 +145,7 @@ impl<L: Language> NodeExpr<L> {
         head
     }
 
-    pub fn count_forwads(&self) -> usize {
+    pub fn count_forward(&self) -> usize {
         self.count_specified(true)
     }
 
@@ -161,7 +161,7 @@ impl<L: Language> NodeExpr<L> {
             count += 1;
         }
 
-        for child in self.children {
+        for child in &self.children {
             count += child.count_specified(forward);
         }
         count
@@ -466,10 +466,11 @@ impl<L: Language> History<L> {
     ) {
         let mut age = self.age_counter;
         self.age_counter += 1;
+        /*
         if let RuleReference::Congruence = rule {
             self.age_counter -= 1;
             age = 0;
-        }
+        }*/
         let cfrom = from.clone().map_children(|id| egraph.find(id));
         let cto = to.clone().map_children(|id| egraph.find(id));
         let currentfrom = self.find_enode_in(&cfrom, fromid, egraph);
@@ -998,7 +999,7 @@ impl<L: Language> History<L> {
             }
             // make sure we did find our included node
             assert!(found);
-            assert!(&self.graph[end].node.clone().map_children(|id| egraph.find(id)) != left.node.as_ref().unwrap());
+            //assert!(&self.graph[end].node.clone().map_children(|id| egraph.find(id)) != left.node.as_ref().unwrap());
 
             let mut path: Vec<&RewriteConnection<L>> = Default::default();
 
