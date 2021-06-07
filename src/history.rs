@@ -20,7 +20,7 @@ type AgeRec<L> = HashMap<usize, (usize, usize, Rc<NodeExpr<L>>, usize)>; // from
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 enum RuleReference<L> {
-    Congruence,
+    Congruence(L, L), // the nodes before cannonicalization
     Index(usize),
     Pattern((PatternAst<L>, PatternAst<L>, String)),
 }
@@ -271,7 +271,7 @@ impl<L: Language> NodeExpr<L> {
             match &self.rule_ref {
                 RuleReference::Pattern((_l, _r, reason)) => reason,
                 RuleReference::Index(rule_index) => &rules[*rule_index].name,
-                RuleReference::Congruence => "congruence",
+                RuleReference::Congruence(_l, _r) => "congruence",
             }
         };
 
@@ -506,12 +506,13 @@ impl<L: Language> History<L> {
         egraph: &EGraph<L, N>,
     ) {
         println!("adding union {} and {}", fromid, toid);
+        assert!(from != to);
         self.add_connection(
-            from,
-            to,
+            from.clone(),
+            to.clone(),
             fromid,
             toid,
-            RuleReference::Congruence,
+            RuleReference::Congruence(from, to),
             Default::default(),
             egraph,
         );
@@ -599,7 +600,7 @@ impl<L: Language> History<L> {
                     pattern = a;
                 }
             }
-            RuleReference::Congruence => return true,
+            RuleReference::Congruence(_l, _r) => return true,
         }
         if let ENodeOrVar::Var(_) = pattern.as_ref().last().unwrap() {
             return true;
@@ -681,7 +682,7 @@ impl<L: Language> History<L> {
                     .get_ast()
                     .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
                 RuleReference::Pattern((left, _right, _reaon)) => &left,
-                RuleReference::Congruence => return false,
+                RuleReference::Congruence(_l, _r) => return false,
             };
     
             let mut rast = match &connection.rule_ref {
@@ -690,7 +691,7 @@ impl<L: Language> History<L> {
                     .get_ast()
                     .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
                 RuleReference::Pattern((_left, right, _reaon)) => right,
-                RuleReference::Congruence => return false,
+                RuleReference::Congruence(_l, _r) => return false,
             };
     
             if connection.is_direction_forward {
@@ -1433,13 +1434,40 @@ impl<L: Language> History<L> {
         let mut current_var_memo = var_memo;
         let varpat = "?a".parse::<PatternAst<L>>().unwrap();
 
+        let mut direction = connection.is_direction_forward;
+        if is_backwards {
+            direction = !direction;
+        }
+        /*
+        if let RuleReference::Congruence(mut eleft, mut eright) = &connection.rule_ref {
+            if !direction {
+                std::mem::swap(&mut eleft, &mut eright);
+            }
+
+            let mut proof = vec![left];
+
+            let mut rindecies = vec![];
+            eright.for_each(|child_index| rindecies.push_back(child_index));
+            let mut counter = 0;
+            eleft.for_each(|child_index| {
+                let current = proof.pop().unwrap();
+
+
+
+                counter += 1;
+            }
+
+            find path between children
+            apply rewrites to children
+        }*/
+
         let mut sast = match &connection.rule_ref {
             RuleReference::Index(i) => rules[*i]
                 .searcher
                 .get_ast()
                 .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
             RuleReference::Pattern((left, _right, _reaon)) => &left,
-            RuleReference::Congruence => return Some((vec![left], current_var_memo)),
+            RuleReference::Congruence(_l, _r) => return Some((vec![left], current_var_memo)), // shouldn't happen
         };
 
         let mut rast = match &connection.rule_ref {
@@ -1448,13 +1476,10 @@ impl<L: Language> History<L> {
                 .get_ast()
                 .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
             RuleReference::Pattern((_left, right, _reaon)) => right,
-            RuleReference::Congruence => return Some((vec![left], current_var_memo)),
+            RuleReference::Congruence(_l, _r) => return Some((vec![left], current_var_memo)),
         };
 
-        let mut direction = connection.is_direction_forward;
-        if is_backwards {
-            direction = !direction;
-        }
+
         if !direction {
             std::mem::swap(&mut sast, &mut rast);
         }

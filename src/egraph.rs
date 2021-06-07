@@ -562,30 +562,25 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 for (n, _e) in &parents {
                     self.memo.remove(n);
                 }
-
-                parents.iter_mut().for_each(|(n, id)| {
-                    let old = n.clone();
-                    n.update_children(|child| self.find(child));
-                    if &old != n {
-                        old_versions.insert(n.clone(), old);
-                    }
-                    *id = self.find(*id);
-                });
-                parents.sort_unstable();
-                parents.dedup_by(|(n1, e1), (n2, e2)| {
+                
+                let mut temp_parents: Vec<(L, Id, L)> = parents.iter().map(|(n, id)| {
+                    let updated = n.clone().map_children(|child| self.find(child));
+                    (updated, self.find(*id), n.clone())
+                }).collect();
+                temp_parents.sort_unstable();
+                temp_parents.dedup_by(|(n1, e1, on1), (n2, e2, on2)| {
                     n1 == n2 && {
-                        let left: L = old_versions.get(n1).unwrap_or(n1).clone();
-                        let right: L = old_versions.get(n2).unwrap_or(n2).clone();
-                        to_union.push(((left, *e1), (right, *e2)));
+                        to_union.push(((on1.clone(), *e1), (on2.clone(), *e2)));
                         true
                     }
                 });
 
-                for (n, e) in &parents {
-                    if let Some(old) = self.memo.insert(n.clone(), *e) {
-                        let left = n.clone();
-                        let right = old_versions.get(n).unwrap().clone();
-                        to_union.push(((left, old), (right, *e)));
+                parents = vec![];
+
+                for (n, e, on) in temp_parents {
+                    if let Some(old) = self.memo.insert(n.clone(), e) {
+                        to_union.push(((n.clone(), old), (on, e)));
+                        parents.push((n, e));
                     }
                 }
 
