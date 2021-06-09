@@ -484,7 +484,9 @@ impl<L: Language> History<L> {
         }*/
         let cfrom = from.clone().map_children(|id| egraph.find(id));
         let cto = to.clone().map_children(|id| egraph.find(id));
+        println!("find first");
         let currentfrom = self.find_enode_in(&cfrom, fromid, egraph);
+        println!("find second");
         let currentto = self.find_enode_in(&cto, toid, egraph);
         assert!(currentfrom != currentto);
 
@@ -517,6 +519,7 @@ impl<L: Language> History<L> {
         egraph: &EGraph<L, N>,
     ) {
         println!("adding union {} and {}", fromid, toid);
+        println!("nodes {} and {}", enode_to_string(&from), enode_to_string(&to));
         assert!(from != to);
         self.add_connection(
             from.clone(),
@@ -588,6 +591,29 @@ impl<L: Language> History<L> {
                 egraph,
             );
         }
+    }
+
+    pub(crate) fn add_union<N: Analysis<L>>(
+        &mut self,
+        egraph: &mut EGraph<L, N>,
+        from: L,
+        to: L,
+        subst: Subst,
+        class: Id,
+        from_class: Id,
+        rule: usize
+    ) {
+        let cfrom = from.clone().map_children(|child| egraph.find(child));
+        let cto = to.clone().map_children(|child| egraph.find(child));
+        self.add_connection(
+            cfrom,
+            cto,
+            from_class,
+            class,
+            RuleReference::Index(rule),
+            subst,
+            egraph,
+        );
     }
 
     fn is_arbitrary<N: Analysis<L>>(
@@ -930,7 +956,11 @@ impl<L: Language> History<L> {
                     pointer = classpointer;  
                     mprog = prog.clone();
                 }
-                if mage < ages.get(&child.index).unwrap_or(&(usize::MAX, 0, prog.clone(), 0)).0 {
+
+                let temp = (usize::MAX, 0, prog.clone(), 0);
+                let current_age = ages.get(&child.index).unwrap_or(&temp);
+                if (mage == current_age.0 && (&*mprog as *const NodeExpr<L> != &**prog as *const NodeExpr<L>) && (&*current_age.2 as *const NodeExpr<L> == &**prog as *const NodeExpr<L>))
+                    || mage < current_age.0 {
                     ages.insert(child.index, (mage, pointer, mprog, classpointer));
                     todo.push_back(child.index);
                 }
@@ -1073,7 +1103,9 @@ impl<L: Language> History<L> {
 
             // if age didn't decrease we need to apply more rewrites to "ground" term
             let new_age = self.rec_age_calculation(egraph, resulting_proof.last().unwrap(), end);
-            if true {
+            if  new_age.get(&end).unwrap().0 >= including.0 {
+                println!("Age didn't decrease!");
+                assert!(false);
                 let mut lowest_age = including.0;
                 let mut todo2: VecDeque<usize> = Default::default();
                 let mut seen: HashSet<usize> = Default::default();
@@ -1239,9 +1271,8 @@ impl<L: Language> History<L> {
                 right_ages.get(&right_node).unwrap().clone(),
                 true,
             );
-            println!("Not reversed: {}", NodeExpr::proof_to_string(rules, &subproof));
             subproof = self.reverse_proof::<N>(subproof);
-            println!("Reversed: {}", NodeExpr::proof_to_string(rules, &subproof));
+            println!("Finished right pattern");
             let (mut restproof, final_var_memo) = self
                 .find_proof_paths(
                     egraph,
@@ -1394,8 +1425,7 @@ impl<L: Language> History<L> {
         );
 
         if seen_memo.contains(&seen_entry) {
-            panic!("Cycle detected");
-            return None;
+            println!("Cycle detected!!!!!!!!!!!");
         }
         let current_seen_memo = seen_memo.insert(seen_entry.clone());
 

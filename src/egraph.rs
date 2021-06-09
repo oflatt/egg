@@ -305,10 +305,10 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
     /// In most cases, there will none or exactly one id.
     ///
     pub fn equivs(&self, expr1: &RecExpr<L>, expr2: &RecExpr<L>) -> Vec<Id> {
-        let matches1 = Pattern::from(expr1.as_ref()).search(self);
+        let matches1 = Pattern::from(expr1.as_ref()).search(self, 0);
         trace!("Matches1: {:?}", matches1);
 
-        let matches2 = Pattern::from(expr2.as_ref()).search(self);
+        let matches2 = Pattern::from(expr2.as_ref()).search(self, 0);
         trace!("Matches2: {:?}", matches2);
 
         let mut equiv_eclasses = Vec::new();
@@ -333,7 +333,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
         for (i, goal) in goals.iter().enumerate() {
             println!("Trying to prove goal {}: {}", i, goal.pretty(40));
-            let matches = goal.search_eclass(&self, id);
+            let matches = goal.search_eclass(&self, id, 0);
             if matches.is_none() {
                 let best = Extractor::new(&self, AstSize).find_best(id).1;
                 panic!(
@@ -384,6 +384,27 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             N::modify(self, to);
         }
         (to, to != from)
+    }
+
+    pub fn union_with(&mut self, from: L,
+        to: L,
+        subst: Subst,
+        class: Id,
+        from_class: Id,
+        rule: usize) -> (Id, bool) {
+        let (id, did_something) = self.union_impl(class, from_class);
+        
+        if did_something {
+            let mut hist = Default::default();
+            std::mem::swap(&mut self.history, &mut hist);
+            hist.add_union(self, from, to, subst, class, from_class, rule);
+            std::mem::swap(&mut self.history, &mut hist);
+
+            if cfg!(feature = "upward-merging") {
+                self.process_unions();
+            }
+        }
+        (id, did_something)
     }
 
     /// Unions two eclasses given their ids.

@@ -196,6 +196,8 @@ impl<L: Language> fmt::Display for Pattern<L> {
 pub struct SearchMatches<L> {
     /// The eclass id that these matches were found in.
     pub eclass: Id,
+    /// The rule index for the matches
+    pub rule: usize,
     /// The matches themselves.
     pub substs: Vec<Subst>,
     // The top level enodes matched
@@ -207,7 +209,7 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
         Some(&self.ast)
     }
 
-    fn search(&self, egraph: &EGraph<L, A>) -> Vec<SearchMatches<L>> {
+    fn search(&self, egraph: &EGraph<L, A>, rule: usize) -> Vec<SearchMatches<L>> {
         match self.ast.as_ref().last().unwrap() {
             ENodeOrVar::ENode(e) => {
                 #[allow(clippy::mem_discriminant_non_enum)]
@@ -216,18 +218,18 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
                     None => vec![],
                     Some(ids) => ids
                         .iter()
-                        .filter_map(|&id| self.search_eclass(egraph, id))
+                        .filter_map(|&id| self.search_eclass(egraph, id, rule))
                         .collect(),
                 }
             }
             ENodeOrVar::Var(_) => egraph
                 .classes()
-                .filter_map(|e| self.search_eclass(egraph, e.id))
+                .filter_map(|e| self.search_eclass(egraph, e.id, rule))
                 .collect(),
         }
     }
 
-    fn search_eclass(&self, egraph: &EGraph<L, A>, eclass: Id) -> Option<SearchMatches<L>> {
+    fn search_eclass(&self, egraph: &EGraph<L, A>, eclass: Id, rule: usize) -> Option<SearchMatches<L>> {
         let (substs, enodes) = self.program.run(egraph, eclass);
         if substs.is_empty() {
             None
@@ -236,6 +238,7 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
                 eclass,
                 substs,
                 enodes,
+                rule
             })
         }
     }
@@ -270,6 +273,7 @@ where
         subst: &Subst,
         top_node: L,
     ) -> Applications<L> {
+        println!("Applied one pattern!");
         let ast = self.ast.as_ref();
         let mut id_buf = vec![0.into(); ast.len()];
         let (id, top_enode) = apply_pat(&mut id_buf, ast, egraph, subst);
@@ -291,6 +295,7 @@ where
         egraph: &mut EGraph<L, A>,
         matches: &[SearchMatches<L>],
     ) -> Applications<L> {
+        println!("Applied matches pattern!");
         let mut affected_classes = vec![];
         let mut from_nodes = vec![];
         let mut from_classes = vec![];
@@ -301,7 +306,14 @@ where
         for mat in matches {
             for (subst, from_enode) in mat.substs.iter().zip(&mat.enodes) {
                 let (id, top_enode) = apply_pat(&mut id_buf, ast, egraph, subst);
-                let (to, did_something) = egraph.union(id, mat.eclass);
+
+                let (to, did_something) = egraph.union_with(from_enode.clone(),
+                        top_enode.clone(),
+                        subst.clone(),
+                        id,
+                        mat.eclass,
+                        mat.rule);
+
                 if did_something {
                     affected_classes.push(id);
                     from_nodes.push(from_enode.clone());
@@ -379,7 +391,7 @@ mod tests {
             "(+ ?a ?b)" => "(+ ?b ?a)"
         );
 
-        let matches = commute_plus.search(&egraph);
+        let matches = commute_plus.search(&egraph, 0);
         let n_matches: usize = matches.iter().map(|m| m.substs.len()).sum();
         assert_eq!(n_matches, 2, "matches is wrong: {:#?}", matches);
 

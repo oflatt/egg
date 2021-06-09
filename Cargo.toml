@@ -30,6 +30,7 @@ env_logger = {version = "0.7", default-features = false}
 ordered-float = "1"
 
 [features]
+default = [ "upward-merging" ]
 upward-merging = []
 wasm-bindgen = [ "instant/wasm-bindgen" ]
 serde-1 = [ "serde", "indexmap/serde-1" ]

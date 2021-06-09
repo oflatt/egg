@@ -407,9 +407,11 @@ where
 
         let mut matches = Vec::new();
         result = result.and_then(|_| {
+            let mut counter = 0;
             rules.iter().try_for_each(|rule| {
-                let ms = self.scheduler.search_rewrite(i, &self.egraph, rule);
+                let ms = self.scheduler.search_rewrite(i, &self.egraph, rule, counter);
                 matches.push(ms);
+                counter += 1;
                 self.check_limits()
             })
         });
@@ -436,7 +438,6 @@ where
                     }
                     debug!("Applied {} {} times", rw.name(), actually_matched);
                 }
-                self.egraph.add_applications(applications, counter);
                 counter += 1;
                 self.check_limits()
             })
@@ -562,8 +563,9 @@ where
         iteration: usize,
         egraph: &EGraph<L, N>,
         rewrite: &Rewrite<L, N>,
+        rule: usize,
     ) -> Vec<SearchMatches<L>> {
-        rewrite.search(egraph)
+        rewrite.search(egraph, rule)
     }
 
     /// A hook allowing you to customize rewrite application behavior.
@@ -739,6 +741,7 @@ where
         iteration: usize,
         egraph: &EGraph<L, N>,
         rewrite: &Rewrite<L, N>,
+        rule: usize,
     ) -> Vec<SearchMatches<L>> {
         let stats = self.rule_stats(rewrite.name());
 
@@ -753,7 +756,7 @@ where
             return vec![];
         }
 
-        let matches = rewrite.search(egraph);
+        let matches = rewrite.search(egraph, rule);
         let total_len: usize = matches.iter().map(|m| m.substs.len()).sum();
         let threshold = stats.match_limit << stats.times_banned;
         if total_len > threshold {
