@@ -1095,10 +1095,12 @@ impl<L: Language> History<L> {
                     }
                 }
                 //assert!(lowest_age < including.0);
-                let last = resulting_proof.pop().unwrap();
-                let (mut rest_proof, next_memo) = self.take_path_including(egraph, rules, last.clone(), current_var_memo, current_seen_memo, (lowest_age, end, last, 0), true);
-                resulting_proof.extend(rest_proof);
-                current_var_memo = next_memo;
+                if lowest_age < including.0 {
+                    let last = resulting_proof.pop().unwrap();
+                    let (mut rest_proof, next_memo) = self.take_path_including(egraph, rules, last.clone(), current_var_memo, current_seen_memo, (lowest_age, end, last, 0), true);
+                    resulting_proof.extend(rest_proof);
+                    current_var_memo = next_memo;
+                }
             }
 
             (resulting_proof, current_var_memo)
