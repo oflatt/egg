@@ -137,7 +137,12 @@ where
 {
     /// Search one eclass, returning None if no matches can be found.
     /// This should not return a SearchMatches with no substs.
-    fn search_eclass(&self, egraph: &EGraph<L, N>, eclass: Id, rule: usize) -> Option<SearchMatches<L>>;
+    fn search_eclass(
+        &self,
+        egraph: &EGraph<L, N>,
+        eclass: Id,
+        rule: usize,
+    ) -> Option<SearchMatches<L>>;
 
     /// Search the whole [`EGraph`], returning a list of all the
     /// [`SearchMatches`] where something was found.
@@ -278,7 +283,6 @@ where
         egraph: &mut EGraph<L, N>,
         matches: &[SearchMatches<L>],
     ) -> Applications<L> {
-        println!("Applied matches rewrite!");
         let mut affected_classes = vec![];
         let mut from_nodes = vec![];
         let mut to_nodes = vec![];
@@ -288,12 +292,14 @@ where
             for (subst, top_node) in mat.substs.iter().zip(&mat.enodes) {
                 let applied = self.apply_one(egraph, mat.eclass, subst, top_node.clone());
                 for i in 0..applied.affected_classes.len() {
-                    let (to, did_something) = egraph.union_with(applied.from_nodes[i].clone(),
+                    let (to, did_something) = egraph.union_with(
+                        applied.from_nodes[i].clone(),
                         applied.to_nodes[i].clone(),
                         subst.clone(),
                         applied.affected_classes[i],
                         mat.eclass,
-                        mat.rule);
+                        mat.rule,
+                    );
 
                     if did_something {
                         affected_classes.push(applied.affected_classes[i]);
@@ -390,7 +396,6 @@ where
         subst: &Subst,
         top_node: L,
     ) -> Applications<L> {
-        println!("Applied one condition!");
         if self
             .condition
             .check(egraph, eclass, subst, top_node.clone())

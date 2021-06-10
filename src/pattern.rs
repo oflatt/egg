@@ -229,7 +229,12 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
         }
     }
 
-    fn search_eclass(&self, egraph: &EGraph<L, A>, eclass: Id, rule: usize) -> Option<SearchMatches<L>> {
+    fn search_eclass(
+        &self,
+        egraph: &EGraph<L, A>,
+        eclass: Id,
+        rule: usize,
+    ) -> Option<SearchMatches<L>> {
         let (substs, enodes) = self.program.run(egraph, eclass);
         if substs.is_empty() {
             None
@@ -238,7 +243,7 @@ impl<L: Language, A: Analysis<L>> Searcher<L, A> for Pattern<L> {
                 eclass,
                 substs,
                 enodes,
-                rule
+                rule,
             })
         }
     }
@@ -273,7 +278,6 @@ where
         subst: &Subst,
         top_node: L,
     ) -> Applications<L> {
-        println!("Applied one pattern!");
         let ast = self.ast.as_ref();
         let mut id_buf = vec![0.into(); ast.len()];
         let (id, top_enode) = apply_pat(&mut id_buf, ast, egraph, subst);
@@ -295,7 +299,6 @@ where
         egraph: &mut EGraph<L, A>,
         matches: &[SearchMatches<L>],
     ) -> Applications<L> {
-        println!("Applied matches pattern!");
         let mut affected_classes = vec![];
         let mut from_nodes = vec![];
         let mut from_classes = vec![];
@@ -307,12 +310,14 @@ where
             for (subst, from_enode) in mat.substs.iter().zip(&mat.enodes) {
                 let (id, top_enode) = apply_pat(&mut id_buf, ast, egraph, subst);
 
-                let (to, did_something) = egraph.union_with(from_enode.clone(),
-                        top_enode.clone(),
-                        subst.clone(),
-                        id,
-                        mat.eclass,
-                        mat.rule);
+                let (to, did_something) = egraph.union_with(
+                    from_enode.clone(),
+                    top_enode.clone(),
+                    subst.clone(),
+                    id,
+                    mat.eclass,
+                    mat.rule,
+                );
 
                 if did_something {
                     affected_classes.push(id);

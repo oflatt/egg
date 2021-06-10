@@ -386,14 +386,17 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         (to, to != from)
     }
 
-    pub fn union_with(&mut self, from: L,
+    pub fn union_with(
+        &mut self,
+        from: L,
         to: L,
         subst: Subst,
         class: Id,
         from_class: Id,
-        rule: usize) -> (Id, bool) {
+        rule: usize,
+    ) -> (Id, bool) {
         let (id, did_something) = self.union_impl(class, from_class);
-        
+
         if did_something {
             let mut hist = Default::default();
             std::mem::swap(&mut self.history, &mut hist);
@@ -583,12 +586,15 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                 for (n, _e) in &parents {
                     self.memo.remove(n);
                 }
-                
-                let mut temp_parents: Vec<(L, Id, L)> = parents.iter().map(|(n, id)| {
-                    let mut updated = n.clone();
-                    updated.update_children(|child| self.find(child));
-                    (updated, self.find(*id), n.clone())
-                }).collect();
+
+                let mut temp_parents: Vec<(L, Id, L)> = parents
+                    .iter()
+                    .map(|(n, id)| {
+                        let mut updated = n.clone();
+                        updated.update_children(|child| self.find(child));
+                        (updated, self.find(*id), n.clone())
+                    })
+                    .collect();
                 temp_parents.sort_unstable();
                 temp_parents.dedup_by(|(n1, e1, on1), (n2, e2, on2)| {
                     n1 == n2 && {
@@ -671,7 +677,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         self.process_unions();
         let n_unions = std::mem::take(&mut self.repairs_since_rebuild);
         let trimmed_nodes = self.rebuild_classes();
-        
+
         let elapsed = start.elapsed();
         info!(
             concat!(

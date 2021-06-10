@@ -409,7 +409,9 @@ where
         result = result.and_then(|_| {
             let mut counter = 0;
             rules.iter().try_for_each(|rule| {
-                let ms = self.scheduler.search_rewrite(i, &self.egraph, rule, counter);
+                let ms = self
+                    .scheduler
+                    .search_rewrite(i, &self.egraph, rule, counter);
                 matches.push(ms);
                 counter += 1;
                 self.check_limits()
