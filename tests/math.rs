@@ -90,19 +90,14 @@ impl Analysis<Math> for ConstantFold {
         let class = &mut egraph[class_id];
         if let Some((c, node)) = class.data.clone() {
             let added = egraph.add(Math::Constant(c));
-            let (id, did_something) = egraph.union_with(node, const_pattern, class_id, added, Default::default(), ...);
-            if did_something {
-                let mut const_pattern: PatternAst<Math> = Default::default();
-                const_pattern.add(ENodeOrVar::ENode(Math::Constant(c)));
-                egraph.add_union_proof(
-                    class_id,
-                    added,
-                    node,
-                    const_pattern,
-                    Default::default(),
-                    "metadata-eval".to_string(),
-                );
-            }
+            let mut const_pattern: PatternAst<Math> = Default::default();
+            const_pattern.add(ENodeOrVar::ENode(Math::Constant(c)));
+            let (id, did_something) = egraph.union_with_reason(class_id,
+                added,
+                node,
+                const_pattern,
+                Default::default(),
+                "metadata-eval".to_string());
             // to not prune, comment this out
             egraph[id].nodes.retain(|n| n.is_leaf());
 
@@ -548,7 +543,6 @@ egg::test_fn! {
     @check |mut r: Runner<Math, ConstantFold>| {
         check_proof_exists(&mut r, rules(), "(* x (i (cos x) x))", "(* x (sin x))");
     }
-
 }
 
 //"(- (* x (i (cos x) x)) (i (* (d x x) (i (cos x) x)) x))"

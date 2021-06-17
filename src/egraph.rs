@@ -334,6 +334,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         for (i, goal) in goals.iter().enumerate() {
             println!("Trying to prove goal {}: {}", i, goal.pretty(40));
             let matches = goal.search_eclass(&self, id, 0);
+            println!("Done {}", i);
             if matches.is_none() {
                 let best = Extractor::new(&self, AstSize).find_best(id).1;
                 panic!(
@@ -384,6 +385,29 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             N::modify(self, to);
         }
         (to, to != from)
+    }
+
+    pub fn union_with_reason(
+        &mut self,
+        fromclass: Id,
+        eclass: Id,
+        from: PatternAst<L>,
+        to: PatternAst<L>,
+        subst: Subst,
+        reason: String,) -> (Id, bool) {
+        let (id, did_something) = self.union_impl(eclass, fromclass);
+
+        if did_something {
+            let mut hist = Default::default();
+            std::mem::swap(&mut self.history, &mut hist);
+            hist.add_union_proof(self, from, to, fromclass, eclass, subst, reason);
+            std::mem::swap(&mut self.history, &mut hist);
+
+            if cfg!(feature = "upward-merging") {
+                self.process_unions();
+            }
+        }
+        (id, did_something)
     }
 
     pub fn union_with(

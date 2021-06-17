@@ -24,6 +24,9 @@ serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 fxhash = "*"
 rpds = "0.8.0"
+num-rational = "0.3.0"
+num-bigint = "0.3.0"
+num-traits = "0.2.12"
 
 [dev-dependencies]
 env_logger = {version = "0.7", default-features = false}
