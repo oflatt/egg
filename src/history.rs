@@ -1519,6 +1519,10 @@ impl<L: Language> History<L> {
                 connection = rightpath[i - leftsize];
             }
             let recent = proof.pop().unwrap();
+            let ages = self.rec_age_calculation(egraph, &recent, connection.index);
+            println!("Applying path age {} other side {}", &ages[&connection.index].0, &ages[&connection.prev].0);
+            println!("From programs {} other side {}", ages[&connection.index].2.to_string(), &ages[&connection.prev].2.to_string());
+            println!("Path enodes [{}]{} and [{}]{}", connection.index, enode_to_string(&self.graph[connection.index].node), connection.prev, enode_to_string(&self.graph[connection.prev].node));
             if let Some((subproof, vmemo)) = self.prove_one_step(
                 egraph,
                 rules,
@@ -1703,11 +1707,8 @@ impl<L: Language> History<L> {
         }
 
         // congruence idea- need to move children into old eclass
+        
         if let RuleReference::Congruence(eleft_o, eright_o) = &connection.rule_ref {
-            /*let mut end = connection.prev;
-            if !direction {
-                end = connection.index;
-            }*/
 
             let mut eleft = eleft_o;
             let mut eright = eright_o;
@@ -1716,6 +1717,22 @@ impl<L: Language> History<L> {
             }
 
             let mut proof = vec![left];
+
+            // first prove at least top enode matches
+            let mut var_children = vec![];
+            eleft.for_each(|child| {
+                let var_num = current_var_memo.len();
+                let mut new_placeholder = NodeExpr::new(None, vec![]);
+                new_placeholder.var_reference = var_num;
+                let rc = Rc::new(new_placeholder);
+                current_var_memo = current_var_memo.push_back(rc.clone());
+                var_children.push(rc);
+            });
+            let right_enode_nodeexpr = NodeExpr::<L>::new(Some(eleft.clone().map_children(|child| egraph.find(child))), var_children);
+            let (initial_proof, imemo) = self.find_proof_paths(egraph, rules, proof.pop().unwrap(),
+                                                                Rc::new(right_enode_nodeexpr), current_var_memo, seen_memo.clone()).unwrap();
+            proof.extend(initial_proof);
+            current_var_memo = imemo;
             
             let mut rindecies = vec![];
             eright.for_each(|child_index| rindecies.push(child_index));
@@ -1727,6 +1744,7 @@ impl<L: Language> History<L> {
                 if child_index != rchild_index {
                     println!("Proving congruence child {}", counter);
                     let current = proof.pop().unwrap();
+                    println!("Congruence node {}", enode_to_string(current.node.as_ref().unwrap()));
                     let (mut subproof, new_memo) = self.prove_to_index(egraph, rules, current.children[counter].clone(), current_var_memo.clone(), seen_memo.clone(), usize::from(rchild_index));
                     self.wrap_child_proof(&mut subproof, &current, counter);
                     proof.extend(subproof);

@@ -631,7 +631,9 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
                 for (n, e, on) in temp_parents {
                     if let Some(old) = self.memo.insert(n.clone(), e) {
-                        to_union.push(((n.clone(), old), (on, e)));
+                        println!("Found old in memo!");
+                        // uhh not sure why we need this so commented out for now
+                        //to_union.push(((n.clone(), old), (on, e)));
                     }
                     parents.push((n, e));
                 }
@@ -643,13 +645,15 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             }
 
             for ((left, id1), (right, id2)) in to_union.drain(..) {
-                let (to, did_something) = self.union_impl(id1, id2);
-                if did_something {
-                    self.dirty_unions.push(to);
+                if self.find(id1) != self.find(id2) {
                     let mut hist = Default::default();
                     std::mem::swap(&mut self.history, &mut hist);
                     hist.union(left, right, id1, id2, &self);
                     std::mem::swap(&mut self.history, &mut hist);
+                }
+                let (to, did_something) = self.union_impl(id1, id2);
+                if did_something {
+                    self.dirty_unions.push(to);
                 }
             }
         }
