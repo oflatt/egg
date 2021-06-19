@@ -958,6 +958,12 @@ impl<L: Language> History<L> {
                 let mut aprog = prog.clone();
                 self.graph[current].node.for_each(|id| {
                     let cage = child_ages[iter].get(&usize::from(id)).unwrap();
+
+                    /*if usize::from(id) == 2 {
+                        println!("Got id 2 program {} subpart {}", prog.to_string(), prog.children[iter].to_string());
+                        println!("age {}", cage.0);
+                    }*/
+
                     if cage.0 > age {
                         age = cage.0;
                         pointer = cage.1;
@@ -1733,6 +1739,11 @@ impl<L: Language> History<L> {
                                                                 Rc::new(right_enode_nodeexpr), current_var_memo, seen_memo.clone()).unwrap();
             proof.extend(initial_proof);
             current_var_memo = imemo;
+
+            let ages = self.rec_age_calculation(egraph, &proof.last().unwrap(), connection.index);
+            println!("After top congruence age {} other side {}", &ages[&connection.index].0, &ages[&connection.prev].0);
+            println!("From programs {} other side {}", ages[&connection.index].2.to_string(), &ages[&connection.prev].2.to_string());
+            println!("Path enodes [{}]{} and [{}]{}", connection.index, enode_to_string(&self.graph[connection.index].node), connection.prev, enode_to_string(&self.graph[connection.prev].node));
             
             let mut rindecies = vec![];
             eright.for_each(|child_index| rindecies.push(child_index));

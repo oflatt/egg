@@ -9,12 +9,14 @@ use std::fmt::Debug;
 #[derive(Debug, Clone, Default)]
 pub struct UnionFind {
     parents: Vec<Cell<Id>>,
+    ages: Vec<usize>,
 }
 
 impl UnionFind {
     pub fn make_set(&mut self) -> Id {
         let id = Id::from(self.parents.len());
         self.parents.push(Cell::new(id));
+        self.ages.push(0);
         id
     }
 
@@ -52,10 +54,32 @@ impl UnionFind {
 
             current = parent;
             // do path halving and proceed
+            // no path halfing because of age
+            /*
             let grandparent = self.parent(parent);
             self.set_parent(current, grandparent);
-            current = grandparent;
+            current = grandparent;*/
         }
+    }
+
+    pub fn find_max_age(&self, mut current: Id, age: usize) -> Id {
+        loop {
+            let parent = self.parent(current);
+            if current == parent {
+                return parent;
+            }
+            if self.ages[usize::from(current)] > age {
+                return current;
+            }
+
+            current = parent;
+        }
+    }
+
+    pub fn union_with_age(&mut self, set1: Id, set2: Id, age: usize) -> (Id, Id) {
+        let res = self.union(set1, set2);
+        self.ages[res.1].set(age);
+        res
     }
 
     /// Returns (new_leader, old_leader)

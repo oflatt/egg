@@ -360,7 +360,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             N::pre_union(self, id1, id2);
         }
 
-        let (to, from) = self.unionfind.union(id1, id2);
+        let (to, from) = self.unionfind.union_with_age(id1, id2, self.history.age_counter);
         debug_assert_eq!(to, self.find(id1));
         debug_assert_eq!(to, self.find(id2));
         if to != from {
@@ -633,7 +633,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
                     if let Some(old) = self.memo.insert(n.clone(), e) {
                         println!("Found old in memo!");
                         // uhh not sure why we need this so commented out for now
-                        //to_union.push(((n.clone(), old), (on, e)));
+                        to_union.push(((n.clone(), old), (on, e)));
                     }
                     parents.push((n, e));
                 }
