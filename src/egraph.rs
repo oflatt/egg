@@ -171,6 +171,10 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         self.unionfind.find(id)
     }
 
+    pub fn find_max_age(&self, id: Id, age: usize) -> Id {
+        self.unionfind.find_max_age(id, age)
+    }
+
     /// Creates a [`Dot`] to visualize this egraph. See [`Dot`].
     ///
     pub fn dot(&self) -> Dot<L, N> {

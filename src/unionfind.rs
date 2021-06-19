@@ -78,7 +78,7 @@ impl UnionFind {
 
     pub fn union_with_age(&mut self, set1: Id, set2: Id, age: usize) -> (Id, Id) {
         let res = self.union(set1, set2);
-        self.ages[res.1].set(age);
+        self.ages[usize::from(res.1)] = age;
         res
     }
 

@@ -432,7 +432,7 @@ pub struct History<L: Language> {
     // connects nodes in the same eclass to each other, forming a tree for each eclass
     pub graph: Vec<GraphNode<L>>,
     memo: HashMap<Id, usize>,
-    age_counter: usize,
+    pub age_counter: usize,
 }
 
 impl<L: Language> Default for History<L> {
@@ -791,13 +791,13 @@ impl<L: Language> History<L> {
         while true {
             if proof[proof.len()-1].node.as_ref().unwrap() == &self.graph[target_index].node.clone().map_children(|id| egraph.find(id)) {
                 println!("Proven to index");
-                let ages = self.rec_age_calculation(egraph, &proof.last().unwrap(), target_index);
+                let ages = self.rec_age_calculation(egraph, &proof.last().unwrap(), target_index, usize::MAX);
                 let including = ages[&target_index].clone();
                 println!("To index age {}", including.0);
                 return (proof, current_var_memo);
             }
             let current = proof.pop().unwrap();
-            let ages = self.rec_age_calculation(egraph, &current, target_index);
+            let ages = self.rec_age_calculation(egraph, &current, target_index, usize::MAX);
             let including = ages[&target_index].clone();
             println!("To index age {}", including.0);
             let (mut subproof, new_var_memo) = self.take_path_including(
@@ -924,6 +924,7 @@ impl<L: Language> History<L> {
         egraph: &mut EGraph<L, N>,
         prog: &Rc<NodeExpr<L>>,
         representative: usize,
+        max_age: usize,
     ) -> AgeRec<L> {
         let mut ages: AgeRec<L> = Default::default();
         let mut child_ages: Vec<AgeRec<L>> = Default::default();
@@ -932,10 +933,11 @@ impl<L: Language> History<L> {
             prog.node.as_ref().unwrap().for_each(|child_id| {
                 let child = &prog.children[index];
                 index += 1;
-                child_ages.push(self.rec_age_calculation(egraph, child, usize::from(child_id)));
+                child_ages.push(self.rec_age_calculation(egraph, child, usize::from(child_id), max_age));
             });
         }
         let enode = prog.node.as_ref();
+        
 
         let mut seen: HashSet<usize> = Default::default();
         let mut todo: VecDeque<usize> = VecDeque::new();
@@ -946,12 +948,20 @@ impl<L: Language> History<L> {
             let cnode = self.graph[current]
                 .node
                 .clone()
-                .map_children(|id| egraph.find(id));
+                .map_children(|id| egraph.find_max_age(id, max_age));
             if seen.contains(&current) {
                 continue;
             }
             seen.insert(current);
-            if Some(&cnode) == enode {
+            let mut node_match = false;
+            if let Some(n) = enode {
+                let enode_update = n.clone()
+                                    .map_children(|id| egraph.find_max_age(id, max_age));
+                if enode_update == cnode {
+                    node_match = true;
+                }
+            }
+            if node_match {
                 let mut age = 0;
                 let mut iter = 0;
                 let mut pointer = current;
@@ -1028,9 +1038,10 @@ impl<L: Language> History<L> {
         egraph: &mut EGraph<L, N>,
         prog: &Rc<NodeExpr<L>>,
         representative: usize,
+        max_age: usize,
     ) -> AgeRec<L> {
         // get all the ages from matching enodes
-        let mut ages = self.matching_age_calculation(egraph, prog, representative);
+        let mut ages = self.matching_age_calculation(egraph, prog, representative, max_age);
         let mut from_table: HashMap<usize, usize> = Default::default();
 
         // propagate ages from matching enodes to eclass representatives
@@ -1216,6 +1227,10 @@ impl<L: Language> History<L> {
                 }
             }
             path.reverse();
+            let mut max_age = including.0;
+            if !is_by_age {
+                max_age = usize::MAX;
+            }
             let (mut resulting_proof, new_memo) = self
                 .apply_path(
                     egraph,
@@ -1226,14 +1241,14 @@ impl<L: Language> History<L> {
                     current_var_memo.clone(),
                     current_seen_memo.clone(),
                     (path, vec![]),
+                    max_age
                 )
                 .unwrap();
 
             current_var_memo = new_memo;
 
-            // if age didn't decrease we need to apply more rewrites to "ground" term
             if should_decrease_age {
-                let new_age = self.rec_age_calculation(egraph, resulting_proof.last().unwrap(), end);
+                let new_age = self.rec_age_calculation(egraph, resulting_proof.last().unwrap(), end, usize::MAX);
 
                 if new_age.get(&end).unwrap().0 >= including.0 {
                     println!("Age didn't decrease!");
@@ -1370,6 +1385,7 @@ impl<L: Language> History<L> {
                 current_var_memo,
                 current_seen_memo,
                 (vec![], vec![]),
+                usize::MAX
             );
         }
 
@@ -1389,8 +1405,8 @@ impl<L: Language> History<L> {
         let mut left_node = 0;
         let mut right_node = 0;
         let mut middle_node = 0;
-        let left_ages = self.rec_age_calculation(egraph, &left, representative);
-        let right_ages = self.rec_age_calculation(egraph, &right, representative);
+        let left_ages = self.rec_age_calculation(egraph, &left, representative, usize::MAX);
+        let right_ages = self.rec_age_calculation(egraph, &right, representative, usize::MAX);
         println!("found ages");
         self.find_youngest_recursive(
             representative,
@@ -1509,6 +1525,7 @@ impl<L: Language> History<L> {
         var_memo: VarMemo<L>,
         seen_memo: SeenMemo<L>,
         (leftpath, rightpath): (Vec<&RewriteConnection<L>>, Vec<&RewriteConnection<L>>),
+        max_age: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
         let mut current_var_memo = var_memo;
         let mut current_seen_memo = seen_memo;
@@ -1525,7 +1542,7 @@ impl<L: Language> History<L> {
                 connection = rightpath[i - leftsize];
             }
             let recent = proof.pop().unwrap();
-            let ages = self.rec_age_calculation(egraph, &recent, connection.index);
+            let ages = self.rec_age_calculation(egraph, &recent, connection.index, usize::MAX);
             println!("Applying path age {} other side {}", &ages[&connection.index].0, &ages[&connection.prev].0);
             println!("From programs {} other side {}", ages[&connection.index].2.to_string(), &ages[&connection.prev].2.to_string());
             println!("Path enodes [{}]{} and [{}]{}", connection.index, enode_to_string(&self.graph[connection.index].node), connection.prev, enode_to_string(&self.graph[connection.prev].node));
@@ -1537,6 +1554,7 @@ impl<L: Language> History<L> {
                 current_var_memo,
                 current_seen_memo.clone(),
                 is_backwards,
+                max_age
             ) {
                 current_var_memo = vmemo;
                 proof.extend(subproof);
@@ -1702,6 +1720,7 @@ impl<L: Language> History<L> {
         var_memo: Vector<Rc<NodeExpr<L>>>,
         seen_memo: SeenMemo<L>,
         is_backwards: bool,
+        max_age: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, Vector<Rc<NodeExpr<L>>>)> {
         // returns a new var_memo
         let mut current_var_memo = var_memo;
@@ -1713,7 +1732,6 @@ impl<L: Language> History<L> {
         }
 
         // congruence idea- need to move children into old eclass
-        
         if let RuleReference::Congruence(eleft_o, eright_o) = &connection.rule_ref {
 
             let mut eleft = eleft_o;
@@ -1740,7 +1758,7 @@ impl<L: Language> History<L> {
             proof.extend(initial_proof);
             current_var_memo = imemo;
 
-            let ages = self.rec_age_calculation(egraph, &proof.last().unwrap(), connection.index);
+            let ages = self.rec_age_calculation(egraph, &proof.last().unwrap(), connection.index, usize::MAX);
             println!("After top congruence age {} other side {}", &ages[&connection.index].0, &ages[&connection.prev].0);
             println!("From programs {} other side {}", ages[&connection.index].2.to_string(), &ages[&connection.prev].2.to_string());
             println!("Path enodes [{}]{} and [{}]{}", connection.index, enode_to_string(&self.graph[connection.index].node), connection.prev, enode_to_string(&self.graph[connection.prev].node));
