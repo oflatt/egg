@@ -399,18 +399,22 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         to: PatternAst<L>,
         subst: Subst,
         reason: String,) -> (Id, bool) {
-        let (id, did_something) = self.union_impl(eclass, fromclass);
-
-        if did_something {
+        let found1 = self.find(fromclass);
+        let found2 = self.find(eclass);
+        if found1 != found2 {
             let mut hist = Default::default();
             std::mem::swap(&mut self.history, &mut hist);
-            hist.add_union_proof(self, from, to, fromclass, eclass, subst, reason);
+            hist.add_union_proof(self, from, to, found1, found2, subst, reason);
             std::mem::swap(&mut self.history, &mut hist);
+        }
+        let (id, did_something) = self.union_impl(found1, found2);
 
+        if did_something {
             if cfg!(feature = "upward-merging") {
                 self.process_unions();
             }
         }
+
         (id, did_something)
     }
 
@@ -419,22 +423,27 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         from: L,
         to: L,
         subst: Subst,
-        class: Id,
-        from_class: Id,
+        eclass: Id,
+        fromclass: Id,
         rule: usize,
     ) -> (Id, bool) {
-        let (id, did_something) = self.union_impl(class, from_class);
 
-        if did_something {
+        let found1 = self.find(fromclass);
+        let found2 = self.find(eclass);
+        if found1 != found2 {
             let mut hist = Default::default();
             std::mem::swap(&mut self.history, &mut hist);
-            hist.add_union(self, from, to, subst, class, from_class, rule);
+            hist.add_union(self, from, to, subst, eclass, fromclass, rule);
             std::mem::swap(&mut self.history, &mut hist);
+        }
+        let (id, did_something) = self.union_impl(found1, found2);
 
+        if did_something {
             if cfg!(feature = "upward-merging") {
                 self.process_unions();
             }
         }
+
         (id, did_something)
     }
 
@@ -476,28 +485,6 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         let proof = hist.produce_proof(self, rules, left, right);
         std::mem::swap(&mut self.history, &mut hist);
         proof
-    }
-
-    pub fn add_union_proof(
-        &mut self,
-        fromclass: Id,
-        eclass: Id,
-        from: PatternAst<L>,
-        to: PatternAst<L>,
-        subst: Subst,
-        reason: String,
-    ) {
-        let mut hist = Default::default();
-        std::mem::swap(&mut self.history, &mut hist);
-        hist.add_union_proof(self, from, to, fromclass, eclass, subst, reason);
-        std::mem::swap(&mut self.history, &mut hist);
-    }
-
-    pub fn add_applications(&mut self, applications: Applications<L>, rule: usize) {
-        let mut hist = Default::default();
-        std::mem::swap(&mut self.history, &mut hist);
-        hist.add_applications(self, applications, rule);
-        std::mem::swap(&mut self.history, &mut hist);
     }
 }
 
