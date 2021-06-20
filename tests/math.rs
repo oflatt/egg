@@ -92,12 +92,14 @@ impl Analysis<Math> for ConstantFold {
             let added = egraph.add(Math::Constant(c));
             let mut const_pattern: PatternAst<Math> = Default::default();
             const_pattern.add(ENodeOrVar::ENode(Math::Constant(c)));
-            let (id, did_something) = egraph.union_with_reason(class_id,
+            let (id, did_something) = egraph.union_with_reason(
+                class_id,
                 added,
                 node,
                 const_pattern,
                 Default::default(),
-                "metadata-eval".to_string());
+                "metadata-eval".to_string(),
+            );
             // to not prune, comment this out
             egraph[id].nodes.retain(|n| n.is_leaf());
 

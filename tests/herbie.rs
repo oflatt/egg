@@ -1,13 +1,12 @@
 use egg::*;
-use std::sync::atomic::{AtomicBool, Ordering};
 use indexmap::IndexMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-
-use std::time::Duration;
-use std::str::FromStr;
 use num_bigint::BigInt;
 use num_rational::Ratio;
 use num_traits::{Pow, Signed, Zero};
+use std::str::FromStr;
+use std::time::Duration;
 
 pub type Constant = num_rational::BigRational;
 pub type RecExpr = egg::RecExpr<Math>;
@@ -42,7 +41,6 @@ impl IterationData<Math, ConstantFold> for IterData {
         Self { extracted }
     }
 }
-
 
 // operators from FPCore
 define_language! {
@@ -84,7 +82,6 @@ impl Default for ConstantFold {
     }
 }
 
-
 impl Analysis<Math> for ConstantFold {
     type Data = Option<(Constant, PatternAst<Math>)>;
     fn make(egraph: &EGraph, enode: &Math) -> Self::Data {
@@ -102,8 +99,10 @@ impl Analysis<Math> for ConstantFold {
         };
 
         let mut missing_child = false;
-        enode.for_each(|n| if egraph[n].data == None {
-            missing_child = true;
+        enode.for_each(|n| {
+            if egraph[n].data == None {
+                missing_child = true;
+            }
         });
         if missing_child {
             return None;
@@ -119,7 +118,7 @@ impl Analysis<Math> for ConstantFold {
                 Math::Mul([_p, a, b]) => x(a)? * x(b)?,
                 Math::Div([_p, a, b]) => {
                     if x(b)?.is_zero() {
-                        return None
+                        return None;
                     } else {
                         x(a)? / x(b)?
                     }
@@ -135,7 +134,7 @@ impl Analysis<Math> for ConstantFold {
                     {
                         Pow::pow(x(a)?, x(b)?.to_integer())
                     } else {
-                        return None
+                        return None;
                     }
                 }
                 Math::Sqrt([_p, a]) => {
@@ -147,10 +146,10 @@ impl Analysis<Math> for ConstantFold {
                         if is_perfect {
                             Ratio::new(s1, s2)
                         } else {
-                            return None
+                            return None;
                         }
                     } else {
-                        return None
+                        return None;
                     }
                 }
                 Math::Fabs([_p, a]) => x(a)?.clone().abs(),
@@ -158,7 +157,7 @@ impl Analysis<Math> for ConstantFold {
                 Math::Ceil([_p, a]) => x(a)?.ceil(),
                 Math::Round([_p, a]) => x(a)?.round(),
 
-                _ => return None
+                _ => return None,
             },
             {
                 let mut pattern: PatternAst<Math> = Default::default();
@@ -178,7 +177,8 @@ impl Analysis<Math> for ConstantFold {
                 });
                 pattern.add(ENodeOrVar::ENode(head));
                 pattern
-            }))
+            },
+        ))
     }
 
     fn merge(&self, to: &mut Self::Data, from: Self::Data) -> bool {
@@ -206,12 +206,14 @@ impl Analysis<Math> for ConstantFold {
             let added = egraph.add(Math::Constant(c.clone()));
             let mut const_pattern: PatternAst<Math> = Default::default();
             const_pattern.add(ENodeOrVar::ENode(Math::Constant(c)));
-            let (id, did_something) = egraph.union_with_reason(class_id,
+            let (id, did_something) = egraph.union_with_reason(
+                class_id,
                 added,
                 node,
                 const_pattern,
                 Default::default(),
-                "metadata-eval".to_string());
+                "metadata-eval".to_string(),
+            );
             if false {
                 egraph[id].nodes.retain(|n| n.is_leaf())
             }
@@ -230,14 +232,13 @@ pub fn mk_rules(tuples: &[(&str, &str, &str)]) -> Vec<Rewrite> {
         .collect()
 }
 
-
 pub fn math_rules() -> Vec<Rewrite> {
-  let mut rules: Vec<Rewrite> = Default::default();
-  let mut add = |name, new_rules| {
-      rules.extend(mk_rules(new_rules));
-  };
+    let mut rules: Vec<Rewrite> = Default::default();
+    let mut add = |name, new_rules| {
+        rules.extend(mk_rules(new_rules));
+    };
 
-  add("all-rules",
+    add("all-rules",
   &[
       ("not-true", "(not real (TRUE real))", "(FALSE real)"),
 ("not-false", "(not real (FALSE real))", "(TRUE real)"),
@@ -435,9 +436,8 @@ pub fn math_rules() -> Vec<Rewrite> {
 ("+-commutative_binary64", "(+ f64 ?a ?b)", "(+ f64 ?b ?a)"),
 ],);
 
-  rules
+    rules
 }
-
 
 fn check_proof(
     r: &mut TRunner,
@@ -466,12 +466,7 @@ fn check_proof(
     }
 }
 
-fn check_proof_exists(
-    r: &mut Runner,
-    rules: Vec<Rewrite>,
-    left: &str,
-    right: &str,
-) {
+fn check_proof_exists(r: &mut Runner, rules: Vec<Rewrite>, left: &str, right: &str) {
     let rule_slice = &rules.iter().collect::<Vec<&Rewrite>>()[..];
     let proof = r.produce_proof(rule_slice, &left.parse().unwrap(), &right.parse().unwrap());
     match proof {
@@ -482,23 +477,24 @@ fn check_proof_exists(
     }
 }
 
-
-
 #[test]
 fn herbie_prove_numerics() {
-    let start: egg::RecExpr<_> = "(* f64 2 (atan f64 (sqrt f64 (/ f64 (- f64 1 h0) (+ f64 1 h0)))))".parse().unwrap();
+    let start: egg::RecExpr<_> =
+        "(* f64 2 (atan f64 (sqrt f64 (/ f64 (- f64 1 h0) (+ f64 1 h0)))))"
+            .parse()
+            .unwrap();
     let mut runner = Runner::new(Default::default())
-    .with_expr(&start)
-    .with_node_limit(5000)
-    .with_iter_limit(100_000_000) // should never hit
-    .with_time_limit(Duration::from_secs(u64::MAX))
-    .with_hook(|r| {
-        if r.egraph.analysis.unsound.load(Ordering::SeqCst) {
-            Err("Unsoundness detected".into())
-        } else {
-            Ok(())
-        }
-    });
+        .with_expr(&start)
+        .with_node_limit(5000)
+        .with_iter_limit(100_000_000) // should never hit
+        .with_time_limit(Duration::from_secs(u64::MAX))
+        .with_hook(|r| {
+            if r.egraph.analysis.unsound.load(Ordering::SeqCst) {
+                Err("Unsoundness detected".into())
+            } else {
+                Ok(())
+            }
+        });
     let first = "(+ f64 (neg f64 (neg f64 2)) 0))";
     let second = "-1";
     runner = runner.run(&math_rules());
@@ -506,26 +502,31 @@ fn herbie_prove_numerics() {
     check_proof_exists(&mut runner, math_rules(), first, second);
 }
 
-
 #[test]
 fn herbie_prove_small() {
-    let start: egg::RecExpr<_> = "(/ f64 (- f64 (exp f64 h0) (exp f64 (neg f64 h0))) 2)".parse().unwrap();
+    let start: egg::RecExpr<_> = "(/ f64 (- f64 (exp f64 h0) (exp f64 (neg f64 h0))) 2)"
+        .parse()
+        .unwrap();
     let mut runner = Runner::new(Default::default())
-    .with_expr(&start)
-    .with_node_limit(5000)
-    .with_iter_limit(100_000_000) // should never hit
-    .with_time_limit(Duration::from_secs(u64::MAX))
-    .with_hook(|r| {
-        if r.egraph.analysis.unsound.load(Ordering::SeqCst) {
-            Err("Unsoundness detected".into())
-        } else {
-            Ok(())
-        }
-    });
+        .with_expr(&start)
+        .with_node_limit(5000)
+        .with_iter_limit(100_000_000) // should never hit
+        .with_time_limit(Duration::from_secs(u64::MAX))
+        .with_hook(|r| {
+            if r.egraph.analysis.unsound.load(Ordering::SeqCst) {
+                Err("Unsoundness detected".into())
+            } else {
+                Ok(())
+            }
+        });
     runner = runner.run(&math_rules());
-    check_proof_exists(&mut runner, math_rules(), "(/ f64 (- f64 (exp f64 h0) (exp f64 (neg f64 h0))) 2)", "-1");
+    check_proof_exists(
+        &mut runner,
+        math_rules(),
+        "(/ f64 (- f64 (exp f64 h0) (exp f64 (neg f64 h0))) 2)",
+        "-1",
+    );
 }
-
 
 /*
 egg::test_fn! {

@@ -364,7 +364,9 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
             N::pre_union(self, id1, id2);
         }
 
-        let (to, from) = self.unionfind.union_with_age(id1, id2, self.history.age_counter);
+        let (to, from) = self
+            .unionfind
+            .union_with_age(id1, id2, self.history.age_counter);
         debug_assert_eq!(to, self.find(id1));
         debug_assert_eq!(to, self.find(id2));
         if to != from {
@@ -398,7 +400,8 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         from: PatternAst<L>,
         to: PatternAst<L>,
         subst: Subst,
-        reason: String,) -> (Id, bool) {
+        reason: String,
+    ) -> (Id, bool) {
         let found1 = self.find(fromclass);
         let found2 = self.find(eclass);
         if found1 != found2 {
@@ -427,7 +430,6 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
         fromclass: Id,
         rule: usize,
     ) -> (Id, bool) {
-
         let found1 = self.find(fromclass);
         let found2 = self.find(eclass);
         if found1 != found2 {
