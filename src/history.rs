@@ -1148,13 +1148,17 @@ impl<L: Language> History<L> {
         &self,
         egraph: &mut EGraph<L, N>,
         rules: &[&Rewrite<L, N>],
-        left: Rc<NodeExpr<L>>,
+        left_input: Rc<NodeExpr<L>>,
         mut current_var_memo: VarMemo<L>,
         current_seen_memo: SeenMemo<L>,
         including: (usize, usize, Rc<NodeExpr<L>>, usize),
         is_by_age: bool, // otherwise, including.0 is an index
         should_decrease_age: bool,
     ) -> (Vec<Rc<NodeExpr<L>>>, VarMemo<L>) {
+        // lookup left
+        let (left, new_memo_1) = History::<L>::get_from_var_memo(&left_input, current_var_memo);
+        current_var_memo = new_memo_1;
+
         // use pointer equality- we want the specific sub-expression
         if &*including.2 as *const NodeExpr<L> == &*left as *const NodeExpr<L> {
             if is_by_age {
@@ -1330,44 +1334,7 @@ impl<L: Language> History<L> {
                     assert!(false);
                 }
             }
-            /*
-                let mut lowest_age = including.0;
-                let mut todo2: VecDeque<usize> = Default::default();
-                let mut seen: HashSet<usize> = Default::default();
-                todo2.push_back(end);
-                while (todo2.len() > 0) {
-                    let current = todo2.pop_front().unwrap();
-                    for connection in &self.graph[current].children {
-                        let child = connection.index;
-
-                        if connection.age < including.0 {
-                            if connection.age < lowest_age {
-                                lowest_age = connection.age;
-                            }
-                            if !seen.contains(&child) {
-                                seen.insert(child);
-                                todo2.push_back(child);
-                            }
-                        }
-                    }
-                }
-                //assert!(lowest_age < including.0);
-                if lowest_age < including.0 {
-                    let last = resulting_proof.pop().unwrap();
-                    let (mut rest_proof, next_memo) = self.take_path_including(
-                        egraph,
-                        rules,
-                        last.clone(),
-                        current_var_memo,
-                        current_seen_memo,
-                        (lowest_age, end, last, 0),
-                        true,
-                    );
-                    resulting_proof.extend(rest_proof);
-                    current_var_memo = next_memo;
-                }
-            }*/
-
+                
             (resulting_proof, current_var_memo)
         } else {
             let mut res = vec![];
