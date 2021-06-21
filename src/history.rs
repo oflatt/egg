@@ -1903,9 +1903,10 @@ impl<L: Language> History<L> {
 
         let mut rnode = self.graph[connection.index].node.clone();
         let mut lnode = self.graph[connection.prev].node.clone();
-        if !direction {
+        if is_backwards {
             std::mem::swap(&mut rnode, &mut lnode);
         }
+        println!("rnode {} lnode {}", enode_to_string(&rnode), enode_to_string(&lnode));
 
         let mut sast = match &connection.rule_ref {
             RuleReference::Index(i) => rules[*i]
@@ -1942,7 +1943,7 @@ impl<L: Language> History<L> {
 
         // if the rhs is just a variable we should adjust searcher
         
-        if let ENodeOrVar::Var(v) = rast.as_ref()[0] {
+        if let ENodeOrVar::Var(single_var) = rast.as_ref().last().unwrap() {
             println!("Making searcher match right enode!");
             let mut var_children = vec![];
             rnode.for_each(|child| {
@@ -1957,7 +1958,7 @@ impl<L: Language> History<L> {
 
 
             let mut rsubst: HashMap<Var, Rc<NodeExpr<L>>> = Default::default();
-            rsubst.insert(v, right_enode_nodeexpr);
+            rsubst.insert(*single_var, right_enode_nodeexpr);
             let (new_search_pattern, vmemo) = NodeExpr::from_pattern_ast::<N>(
                 egraph,
                 sast,
