@@ -503,6 +503,57 @@ fn herbie_prove_numerics() {
 }
 
 #[test]
+fn herbie_prove_2() {
+    let start: egg::RecExpr<_> =
+        "(* f64 2 (atan f64 (sqrt f64 (/ f64 (- f64 1 h0) (+ f64 1 h0)))))"
+            .parse()
+            .unwrap();
+    let mut runner = Runner::new(Default::default())
+        .with_expr(&start)
+        .with_node_limit(5000)
+        .with_iter_limit(100_000_000) // should never hit
+        .with_time_limit(Duration::from_secs(u64::MAX))
+        .with_hook(|r| {
+            if r.egraph.analysis.unsound.load(Ordering::SeqCst) {
+                Err("Unsoundness detected".into())
+            } else {
+                Ok(())
+            }
+        });
+    let first = "2";
+    let second = "(+ f64 1 1)";
+    runner = runner.run(&math_rules());
+    //assert!(runner.egraph.equivs(&first.parse().unwrap(), &second.parse().unwrap()).len() == 1);
+    check_proof_exists(&mut runner, math_rules(), first, second);
+}
+
+
+#[test]
+fn herbie_prove_neg() {
+    let start: egg::RecExpr<_> =
+        "(* f64 2 (atan f64 (sqrt f64 (/ f64 (- f64 1 h0) (+ f64 1 h0)))))"
+            .parse()
+            .unwrap();
+    let mut runner = Runner::new(Default::default())
+        .with_expr(&start)
+        .with_node_limit(5000)
+        .with_iter_limit(100_000_000) // should never hit
+        .with_time_limit(Duration::from_secs(u64::MAX))
+        .with_hook(|r| {
+            if r.egraph.analysis.unsound.load(Ordering::SeqCst) {
+                Err("Unsoundness detected".into())
+            } else {
+                Ok(())
+            }
+        });
+    let first = "(neg f64 (neg f64 2)))";
+    let second = "(neg f64 (neg f64 (+ f64 1 1))))";
+    runner = runner.run(&math_rules());
+    //assert!(runner.egraph.equivs(&first.parse().unwrap(), &second.parse().unwrap()).len() == 1);
+    check_proof_exists(&mut runner, math_rules(), first, second);
+}
+
+#[test]
 fn herbie_prove_small() {
     let start: egg::RecExpr<_> = "(/ f64 (- f64 (exp f64 h0) (exp f64 (neg f64 h0))) 2)"
         .parse()
@@ -528,235 +579,3 @@ fn herbie_prove_small() {
     );
 }
 
-/*
-egg::test_fn! {
-    herbie_prove, math_rules(),
-    runner = TRunner::default()
-        .with_node_limit(5000)
-        .with_iter_limit(100_000_000) // should never hit
-        .with_time_limit(Duration::from_secs(u64::MAX))
-        ,
-    "(collection 0 (* f64 (sqrt f64 8) h0) (* f64 (sqrt f64 8) h0) (* f64 (sqrt f64 8) h0) (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0))) (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0))) (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0))) (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0))) (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0))) (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0))) (+ f64 (+ f64 (log f64 h1) (log f64 h1)) (+ f64 (+ f64 (log f64 (sqrt f64 8)) (log f64 h0)) (log f64 (sqrt f64 0)))) (+ f64 (+ f64 (log f64 h1) (log f64 h1)) (+ f64 (log f64 (* f64 (sqrt f64 8) h0)) (log f64 (sqrt f64 0)))) (+ f64 (+ f64 (log f64 h1) (log f64 h1)) (log f64 (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)))) (+ f64 (log f64 (* f64 h1 h1)) (+ f64 (+ f64 (log f64 (sqrt f64 8)) (log f64 h0)) (log f64 (sqrt f64 0)))) (+ f64 (log f64 (* f64 h1 h1)) (+ f64 (log f64 (* f64 (sqrt f64 8) h0)) (log f64 (sqrt f64 0)))) (+ f64 (log f64 (* f64 h1 h1)) (log f64 (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)))) (exp f64 (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)))) (log f64 (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)))) (* f64 (* f64 (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0))) (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)))) (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)))) (* f64 (cbrt f64 (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)))) (cbrt f64 (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0))))) (cbrt f64 (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)))) (* f64 (* f64 (* f64 (* f64 h1 h1) (* f64 h1 h1)) (* f64 h1 h1)) (* f64 (* f64 (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0))) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)))) (* f64 (* f64 (* f64 (* f64 h1 h1) (* f64 h1 h1)) (* f64 h1 h1)) (* f64 (* f64 (* f64 (* f64 (sqrt f64 8) h0) (* f64 (sqrt f64 8) h0)) (* f64 (sqrt f64 8) h0)) (* f64 (* f64 (sqrt f64 0) (sqrt f64 0)) (sqrt f64 0)))) (* f64 (* f64 (* f64 (* f64 h1 h1) (* f64 h1 h1)) (* f64 h1 h1)) (* f64 (* f64 (* f64 (* f64 (sqrt f64 8) (sqrt f64 8)) (sqrt f64 8)) (* f64 (* f64 h0 h0) h0)) (* f64 (* f64 (sqrt f64 0) (sqrt f64 0)) (sqrt f64 0)))) (* f64 (* f64 (* f64 (* f64 h1 h1) h1) (* f64 (* f64 h1 h1) h1)) (* f64 (* f64 (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0))) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)))) (* f64 (* f64 (* f64 (* f64 h1 h1) h1) (* f64 (* f64 h1 h1) h1)) (* f64 (* f64 (* f64 (* f64 (sqrt f64 8) h0) (* f64 (sqrt f64 8) h0)) (* f64 (sqrt f64 8) h0)) (* f64 (* f64 (sqrt f64 0) (sqrt f64 0)) (sqrt f64 0)))) (* f64 (* f64 (* f64 (* f64 h1 h1) h1) (* f64 (* f64 h1 h1) h1)) (* f64 (* f64 (* f64 (* f64 (sqrt f64 8) (sqrt f64 8)) (sqrt f64 8)) (* f64 (* f64 h0 h0) h0)) (* f64 (* f64 (sqrt f64 0) (sqrt f64 0)) (sqrt f64 0)))) (sqrt f64 (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)))) (sqrt f64 (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)))) (* f64 h1 (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0))) (* f64 (* f64 h1 h1) (* f64 (sqrt f64 8) h0)) (* f64 (sqrt f64 8) h0) (+ f64 (log f64 (sqrt f64 8)) (log f64 h0)) (exp f64 (* f64 (sqrt f64 8) h0)) (log f64 (* f64 (sqrt f64 8) h0)) (* f64 (* f64 (* f64 (sqrt f64 8) h0) (* f64 (sqrt f64 8) h0)) (* f64 (sqrt f64 8) h0)) (* f64 (cbrt f64 (* f64 (sqrt f64 8) h0)) (cbrt f64 (* f64 (sqrt f64 8) h0))) (cbrt f64 (* f64 (sqrt f64 8) h0)) (* f64 (* f64 (* f64 (sqrt f64 8) (sqrt f64 8)) (sqrt f64 8)) (* f64 (* f64 h0 h0) h0)) (sqrt f64 (* f64 (sqrt f64 8) h0)) (sqrt f64 (* f64 (sqrt f64 8) h0)) (* f64 (sqrt f64 (sqrt f64 8)) (sqrt f64 h0)) (* f64 (sqrt f64 (sqrt f64 8)) (sqrt f64 h0)) (* f64 (sqrt f64 (sqrt f64 8)) (sqrt f64 h0)) (* f64 (sqrt f64 (sqrt f64 8)) (sqrt f64 h0)) (* f64 (cbrt f64 (sqrt f64 8)) h0) (* f64 (sqrt f64 (sqrt f64 8)) h0) (* f64 (sqrt f64 (cbrt f64 8)) h0) (* f64 (sqrt f64 (sqrt f64 8)) h0) (* f64 (sqrt f64 8) h0) (* f64 (sqrt f64 8) h0) (* f64 (sqrt f64 8) (* f64 (cbrt f64 h0) (cbrt f64 h0))) (* f64 (sqrt f64 8) (sqrt f64 h0)) (* f64 (sqrt f64 8) 1))"
-    => "(collection
-        0
-        (* f64 (sqrt f64 8) h0)
-        (* f64 (sqrt f64 8) h0)
-        (* f64 (sqrt f64 8) h0)
-        (*
-          f64
-          (sqrt f64 8)
-          (*
-            f64
-            (* f64 h1 h1)
-            (* f64 h0 (sqrt f64 0))))
-        (*
-          f64
-          (sqrt f64 8)
-          (*
-            f64
-            (* f64 h1 h1)
-            (* f64 h0 (sqrt f64 0))))
-        (*
-          f64
-          (sqrt f64 8)
-          (*
-            f64
-            (* f64 h1 h1)
-            (* f64 h0 (sqrt f64 0))))
-        (*
-          f64
-          (sqrt f64 8)
-          (*
-            f64
-            (* f64 h1 h1)
-            (* f64 h0 (sqrt f64 0))))
-        (*
-          f64
-          (sqrt f64 8)
-          (*
-            f64
-            (* f64 h1 h1)
-            (* f64 h0 (sqrt f64 0))))
-        (*
-          f64
-          (sqrt f64 8)
-          (*
-            f64
-            (* f64 h1 h1)
-            (* f64 h0 (sqrt f64 0))))
-        (log
-          f64
-          (*
-            f64
-            (sqrt f64 8)
-            (*
-              f64
-              (* f64 h1 h1)
-              (* f64 h0 (sqrt f64 0)))))
-        (log
-          f64
-          (*
-            f64
-            (sqrt f64 8)
-            (*
-              f64
-              (* f64 h1 h1)
-              (* f64 h0 (sqrt f64 0)))))
-        (log
-          f64
-          (*
-            f64
-            (sqrt f64 8)
-            (*
-              f64
-              (* f64 h1 h1)
-              (* f64 h0 (sqrt f64 0)))))
-        (log
-          f64
-          (*
-            f64
-            (sqrt f64 8)
-            (*
-              f64
-              (* f64 h1 h1)
-              (* f64 h0 (sqrt f64 0)))))
-        (log
-          f64
-          (*
-            f64
-            (sqrt f64 8)
-            (*
-              f64
-              (* f64 h1 h1)
-              (* f64 h0 (sqrt f64 0)))))
-        (log
-          f64
-          (*
-            f64
-            (sqrt f64 8)
-            (*
-              f64
-              (* f64 h1 h1)
-              (* f64 h0 (sqrt f64 0)))))
-        (pow
-          f64
-          (pow f64 (exp f64 (sqrt f64 8)) h0)
-          (* f64 (* f64 h1 h1) (sqrt f64 0)))
-        (log
-          f64
-          (*
-            f64
-            (sqrt f64 8)
-            (*
-              f64
-              (* f64 h1 h1)
-              (* f64 h0 (sqrt f64 0)))))
-        0
-        (*
-          f64
-          (cbrt
-            f64
-            (*
-              f64
-              (sqrt f64 8)
-              (*
-                f64
-                (* f64 h1 h1)
-                (* f64 h0 (sqrt f64 0)))))
-          (cbrt
-            f64
-            (*
-              f64
-              (sqrt f64 8)
-              (*
-                f64
-                (* f64 h1 h1)
-                (* f64 h0 (sqrt f64 0))))))
-        (cbrt
-          f64
-          (*
-            f64
-            (sqrt f64 8)
-            (*
-              f64
-              (* f64 h1 h1)
-              (* f64 h0 (sqrt f64 0)))))
-        0
-        0
-        0
-        0
-        0
-        0
-        (sqrt
-          f64
-          (*
-            f64
-            (sqrt f64 8)
-            (*
-              f64
-              (* f64 h1 h1)
-              (* f64 h0 (sqrt f64 0)))))
-        (sqrt
-          f64
-          (*
-            f64
-            (sqrt f64 8)
-            (*
-              f64
-              (* f64 h1 h1)
-              (* f64 h0 (sqrt f64 0)))))
-        (*
-          f64
-          (sqrt f64 8)
-          (* f64 h1 (* f64 h0 (sqrt f64 0))))
-        (*
-          f64
-          (* f64 (sqrt f64 8) h0)
-          (* f64 h1 h1))
-        (* f64 (sqrt f64 8) h0)
-        (log f64 (* f64 (sqrt f64 8) h0))
-        (pow f64 (exp f64 (sqrt f64 8)) h0)
-        (log f64 (* f64 (sqrt f64 8) h0))
-        (pow f64 (* f64 (sqrt f64 8) h0) 3)
-        (*
-          f64
-          (cbrt f64 (* f64 (sqrt f64 8) h0))
-          (cbrt f64 (* f64 (sqrt f64 8) h0)))
-        (cbrt f64 (* f64 (sqrt f64 8) h0))
-        (pow f64 (* f64 (sqrt f64 8) h0) 3)
-        (sqrt f64 (* f64 (sqrt f64 8) h0))
-        (sqrt f64 (* f64 (sqrt f64 8) h0))
-        (*
-          f64
-          (sqrt f64 (sqrt f64 8))
-          (sqrt f64 h0))
-        (*
-          f64
-          (sqrt f64 (sqrt f64 8))
-          (sqrt f64 h0))
-        (*
-          f64
-          (sqrt f64 (sqrt f64 8))
-          (sqrt f64 h0))
-        (*
-          f64
-          (sqrt f64 (sqrt f64 8))
-          (sqrt f64 h0))
-        (* f64 h0 (cbrt f64 (sqrt f64 8)))
-        (* f64 h0 (sqrt f64 (sqrt f64 8)))
-        (* f64 h0 (sqrt f64 (cbrt f64 8)))
-        (* f64 h0 (sqrt f64 (sqrt f64 8)))
-        (* f64 (sqrt f64 8) h0)
-        (* f64 (sqrt f64 8) h0)
-        (*
-          f64
-          (sqrt f64 8)
-          (* f64 (cbrt f64 h0) (cbrt f64 h0)))
-        (* f64 (sqrt f64 8) (sqrt f64 h0))
-        (sqrt f64 8))"
-    @check |mut r: TRunner| {
-        check_proof_exists(&mut r, math_rules(), "(* f64 (* f64 (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0))) (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0)))) (* f64 (* f64 h1 h1) (* f64 (* f64 (sqrt f64 8) h0) (sqrt f64 0))))", "0");
-    }
-}
-
-*/

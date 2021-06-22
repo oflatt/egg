@@ -324,11 +324,13 @@ impl<L: Language> NodeExpr<L> {
     }
 
     pub(crate) fn from_pattern_ast<N: Analysis<L>>(
+        history: &History<L>,
         egraph: &mut EGraph<L, N>,
         ast: &PatternAst<L>,
         subst: &Subst,
         substmap: Option<&HashMap<Var, Rc<NodeExpr<L>>>>, // optionally used to replace variables with nodeexpr
         var_memo: Option<VarMemo<L>>,                     // add this for variable bindings
+        should_ground_term: bool,
     ) -> (Self, VarMemo<L>) {
         let mut dummy = Default::default();
         let use_memo = var_memo != None;
@@ -348,7 +350,9 @@ impl<L: Language> NodeExpr<L> {
                         }
                     }
                     if !added {
-                        if use_memo {
+                        if should_ground_term {
+                            nodeexprs.push(Rc::new(history.build_term_age_0(usize::from(subst[*v]))));
+                        } else if use_memo {
                             let mut var_num = var_memo_unwrapped.len();
                             if let Some(n) = symbol_map.get(v) {
                                 var_num = *n;
@@ -415,6 +419,7 @@ impl<L: Language> NodeExpr<L> {
 
     pub(crate) fn rewrite<N: Analysis<L>>(
         self: &Rc<NodeExpr<L>>,
+        history: &History<L>,
         egraph: &mut EGraph<L, N>,
         left: &PatternAst<L>,
         right: &PatternAst<L>,
@@ -423,7 +428,7 @@ impl<L: Language> NodeExpr<L> {
     ) -> (NodeExpr<L>, VarMemo<L>) {
         let mut graphsubst = Default::default();
         self.make_subst(left, Id::from(left.as_ref().len() - 1), &mut graphsubst);
-        NodeExpr::from_pattern_ast::<N>(egraph, right, subst, Some(&graphsubst), Some(var_memo))
+        NodeExpr::from_pattern_ast::<N>(history, egraph, right, subst, Some(&graphsubst), Some(var_memo), true)
     }
 }
 
@@ -561,8 +566,8 @@ impl<L: Language> History<L> {
         reason: String,
     ) {
         println!("adding union proof {} and {}", fromid, toid);
-        let from_node = NodeExpr::from_pattern_ast(egraph, &from, &subst, None, None).0;
-        let to_node = NodeExpr::from_pattern_ast(egraph, &to, &subst, None, None).0;
+        let from_node = NodeExpr::from_pattern_ast(self, egraph, &from, &subst, None, None, false).0;
+        let to_node = NodeExpr::from_pattern_ast(self, egraph, &to, &subst, None, None, false).0;
 
         self.add_connection(
             from_node.node.as_ref().unwrap().clone(),
@@ -1380,6 +1385,17 @@ impl<L: Language> History<L> {
         }
     }
 
+    fn build_term_age_0(&self, index: usize) -> NodeExpr<L> {
+        let mut children = vec![];
+        let node = self.graph[index].node.clone();
+
+        node.for_each(|child| {
+            children.push(Rc::new(self.build_term_age_0(usize::from(child))));
+        });
+
+        return NodeExpr::new(Some(node), children);
+    }
+
     fn find_youngest_proof_path<N: Analysis<L>>(
         &self,
         egraph: &mut EGraph<L, N>,
@@ -1909,11 +1925,13 @@ impl<L: Language> History<L> {
         println!("Rule {} to {}", sast, rast);
 
         let (mut search_pattern, first_var_memo) = NodeExpr::from_pattern_ast::<N>(
+            self,
             egraph,
             sast,
             &connection.subst,
             None,
             Some(current_var_memo),
+            false
         );
         current_var_memo = first_var_memo;
 
@@ -1922,12 +1940,13 @@ impl<L: Language> History<L> {
             println!("Making searcher match right enode!");
             let mut var_children = vec![];
             rnode.for_each(|child| {
-                let var_num = current_var_memo.len();
+                var_children.push(Rc::new(self.build_term_age_0(usize::from(child))));
+                /*let var_num = current_var_memo.len();
                 let mut new_placeholder = NodeExpr::new(None, vec![]);
                 new_placeholder.var_reference = var_num;
                 let rc = Rc::new(new_placeholder);
                 current_var_memo = current_var_memo.push_back(rc.clone());
-                var_children.push(rc);
+                var_children.push(rc);*/
             });
             let right_enode_nodeexpr = Rc::new(NodeExpr::<L>::new(Some(rnode.clone().map_children(|child| egraph.find_max_age(child, usize::MAX))), var_children));
 
@@ -1935,11 +1954,13 @@ impl<L: Language> History<L> {
             let mut rsubst: HashMap<Var, Rc<NodeExpr<L>>> = Default::default();
             rsubst.insert(*single_var, right_enode_nodeexpr);
             let (new_search_pattern, vmemo) = NodeExpr::from_pattern_ast::<N>(
+                self,
                 egraph,
                 sast,
                 &connection.subst,
                 Some(&rsubst),
-                Some(current_var_memo));
+                Some(current_var_memo),
+                false);
             search_pattern = new_search_pattern;
             current_var_memo = vmemo;
         }
@@ -1964,7 +1985,7 @@ impl<L: Language> History<L> {
 
         let latest = proof.pop().unwrap();
         let (mut next, third_var_memo) =
-            latest.rewrite::<N>(egraph, sast, rast, &connection.subst, current_var_memo);
+            latest.rewrite::<N>(self, egraph, sast, rast, &connection.subst, current_var_memo);
         current_var_memo = third_var_memo;
         let mut newlink = unwrap_or_clone(latest);
         newlink.rule_ref = connection.rule_ref.clone();
