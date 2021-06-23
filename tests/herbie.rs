@@ -553,6 +553,7 @@ fn herbie_prove_neg() {
     check_proof_exists(&mut runner, math_rules(), first, second);
 }
 
+
 #[test]
 fn herbie_prove_small() {
     let start: egg::RecExpr<_> = "(/ f64 (- f64 (exp f64 h0) (exp f64 (neg f64 h0))) 2)"

@@ -351,7 +351,7 @@ impl<L: Language> NodeExpr<L> {
                     }
                     if !added {
                         if should_ground_term {
-                            nodeexprs.push(Rc::new(history.build_term_age_0(usize::from(subst[*v]))));
+                            nodeexprs.push(Rc::new(history.build_term_age_0(egraph, usize::from(subst[*v]))));
                         } else if use_memo {
                             let mut var_num = var_memo_unwrapped.len();
                             if let Some(n) = symbol_map.get(v) {
@@ -1079,13 +1079,11 @@ impl<L: Language> History<L> {
     fn rec_age_calculation<N: Analysis<L>>(
         &self,
         egraph: &mut EGraph<L, N>,
-        prog_in: &Rc<NodeExpr<L>>,
+        prog: &Rc<NodeExpr<L>>,
         representative: usize,
         max_age: usize,
         current_var_memo: &VarMemo<L>,
     ) -> AgeRec<L> {
-        let prog_l = History::<L>::get_from_var_memo(prog_in, current_var_memo.clone());
-        let prog = &prog_l.0;
         // get all the ages from matching enodes
         let mut ages = self.matching_age_calculation(egraph, prog, representative, max_age, current_var_memo);
         let mut from_table: HashMap<usize, usize> = Default::default();
@@ -1283,10 +1281,7 @@ impl<L: Language> History<L> {
                 }
             }
             path.reverse();
-            let mut max_age = including.0;
-            if !is_by_age {
-                max_age = usize::MAX;
-            }
+            let mut max_age = usize::MAX;
             let (mut resulting_proof, new_memo) = self
                 .apply_path(
                     egraph,
@@ -1321,7 +1316,7 @@ impl<L: Language> History<L> {
                     );
                     println!(
                         "Last program {}",
-                        resulting_proof.last().unwrap().to_string()
+                        History::<L>::lookup_all_vars(resulting_proof.last().unwrap().clone(), &current_var_memo).to_string()
                     );
                     println!("Age program {}", new_age.get(&end).unwrap().2.to_string());
                     println!("end index {}", end);
@@ -1385,40 +1380,29 @@ impl<L: Language> History<L> {
         }
     }
 
-    fn build_term_age_0(&self, index: usize) -> NodeExpr<L> {
+    fn build_term_age_0<N: Analysis<L>>(&self, egraph: &mut EGraph<L, N>, index: usize) -> NodeExpr<L> {
         let mut children = vec![];
         let node = self.graph[index].node.clone();
 
         node.for_each(|child| {
-            children.push(Rc::new(self.build_term_age_0(usize::from(child))));
+            children.push(Rc::new(self.build_term_age_0(egraph, usize::from(child))));
         });
 
-        return NodeExpr::new(Some(node), children);
+        return NodeExpr::new(Some(node.map_children(|child| egraph.find(child))), children);
     }
 
     fn find_youngest_proof_path<N: Analysis<L>>(
         &self,
         egraph: &mut EGraph<L, N>,
         rules: &[&Rewrite<L, N>],
-        left: Rc<NodeExpr<L>>,
-        right: Rc<NodeExpr<L>>,
+        mut left: Rc<NodeExpr<L>>,
+        mut right: Rc<NodeExpr<L>>,
         mut current_var_memo: VarMemo<L>,
         current_seen_memo: SeenMemo<L>,
         max_age: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
-        /*if left.node == right.node {
-            return self.apply_path(
-                egraph,
-                rules,
-                left,
-                right,
-                false,
-                current_var_memo,
-                current_seen_memo,
-                (vec![], vec![]),
-                usize::MAX
-            );
-        }*/
+        left = History::<L>::lookup_all_vars(left, &current_var_memo);
+        right = History::<L>::lookup_all_vars(right, &current_var_memo);
 
         let mut prev: HashMap<usize, usize> = Default::default();
         let mut prevc: HashMap<usize, &RewriteConnection<L>> = Default::default();
@@ -1670,29 +1654,27 @@ impl<L: Language> History<L> {
         &self,
         egraph: &mut EGraph<L, N>,
         rules: &[&Rewrite<L, N>],
-        left_input: Rc<NodeExpr<L>>,
-        right_input: Rc<NodeExpr<L>>,
+        mut left: Rc<NodeExpr<L>>,
+        mut right: Rc<NodeExpr<L>>,
         var_memo: VarMemo<L>,
         seen_memo: SeenMemo<L>,
         max_age: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
         let mut current_var_memo = var_memo;
-        let (left, new_memo_1) = History::<L>::get_from_var_memo(&left_input, current_var_memo);
-        current_var_memo = new_memo_1;
-        let (right, new_memo_2) = History::<L>::get_from_var_memo(&right_input, current_var_memo);
-        current_var_memo = new_memo_2;
+        left = History::<L>::lookup_all_vars(left, &current_var_memo);
+        right = History::<L>::lookup_all_vars(right, &current_var_memo);
 
         println!("Prove {} and {}", left.to_string(), right.to_string());
 
         let seen_entry = (
-            left.clone().alpha_normalize(),
-            right.clone().alpha_normalize(),
+            left.alpha_normalize(),
+            right.alpha_normalize(),
         );
 
         if seen_memo.contains(&seen_entry) {
             println!("Cycle detected!!!!!!!!!!!");
-            println!("Left: {}", left.to_string());
-            println!("Right: {}", right.to_string());
+            println!("Left: {}", seen_entry.0.to_string());
+            println!("Right: {}", seen_entry.1.to_string());
             assert!(false);
         }
         let current_seen_memo = seen_memo.insert(seen_entry.clone());
@@ -1931,7 +1913,7 @@ impl<L: Language> History<L> {
             &connection.subst,
             None,
             Some(current_var_memo),
-            false
+            true
         );
         current_var_memo = first_var_memo;
 
@@ -1940,7 +1922,7 @@ impl<L: Language> History<L> {
             println!("Making searcher match right enode!");
             let mut var_children = vec![];
             rnode.for_each(|child| {
-                var_children.push(Rc::new(self.build_term_age_0(usize::from(child))));
+                var_children.push(Rc::new(self.build_term_age_0(egraph, usize::from(child))));
                 /*let var_num = current_var_memo.len();
                 let mut new_placeholder = NodeExpr::new(None, vec![]);
                 new_placeholder.var_reference = var_num;
@@ -1960,7 +1942,7 @@ impl<L: Language> History<L> {
                 &connection.subst,
                 Some(&rsubst),
                 Some(current_var_memo),
-                false);
+                true);
             search_pattern = new_search_pattern;
             current_var_memo = vmemo;
         }
