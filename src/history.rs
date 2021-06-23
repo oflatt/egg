@@ -98,7 +98,7 @@ impl<L: Language> NodeExpr<L> {
         exprs: &Vec<Rc<NodeExpr<L>>>,
     ) -> String {
         let strings = NodeExpr::to_strings(rules, exprs);
-        strings.join(" ")
+        strings.join("\n")
     }
 
     pub fn to_strings<N: Analysis<L>>(
@@ -134,6 +134,24 @@ impl<L: Language> NodeExpr<L> {
             map.insert(*v, i);
         }
         Rc::new(self.alpha_normalize_with(&map))
+    }
+
+    pub fn equal_to_with_vars(&self, other: &Rc<NodeExpr<L>>) -> bool {
+        if self.node == None || other.node == None {
+            return true;
+        } else {
+            if self.node != other.node || self.children.len() != other.children.len() {
+                return false;
+            }
+            let mut counter = 0;
+            for child in &self.children {
+                if !child.equal_to_with_vars(&other.children[counter]) {
+                    return false;
+                }
+                counter += 1;
+            }
+            return true;
+        }
     }
 
     fn alpha_normalize_with(&self, map: &HashMap<usize, usize>) -> NodeExpr<L> {
@@ -327,7 +345,7 @@ impl<L: Language> NodeExpr<L> {
         history: &History<L>,
         egraph: &mut EGraph<L, N>,
         ast: &PatternAst<L>,
-        subst: &Subst,
+        subst: Option<&Subst>, // used in proof checking, we have a full expression to rewrite
         substmap: Option<&HashMap<Var, Rc<NodeExpr<L>>>>, // optionally used to replace variables with nodeexpr
         var_memo: Option<VarMemo<L>>,                     // add this for variable bindings
         should_ground_term: bool,
@@ -351,7 +369,7 @@ impl<L: Language> NodeExpr<L> {
                     }
                     if !added {
                         if should_ground_term {
-                            nodeexprs.push(Rc::new(history.build_term_age_0(egraph, usize::from(subst[*v]))));
+                            nodeexprs.push(Rc::new(history.build_term_age_0(egraph, usize::from(subst.unwrap()[*v]))));
                         } else if use_memo {
                             let mut var_num = var_memo_unwrapped.len();
                             if let Some(n) = symbol_map.get(v) {
@@ -372,7 +390,13 @@ impl<L: Language> NodeExpr<L> {
                         }
                     }
                     // substs may have old ids
-                    new_ids.push(egraph.find(subst[*v]));
+                    if let Some(s) = subst {
+                        new_ids.push(egraph.find(s[*v]));   
+                    } else {
+                        // then we must already have an enode
+                        let node = nodeexprs.last().unwrap().node.as_ref().unwrap();
+                        new_ids.push(egraph.lookup(node.clone()).unwrap());
+                    }
                 }
                 ENodeOrVar::ENode(node) => {
                     let mut children: Vec<Rc<NodeExpr<L>>> = vec![];
@@ -423,7 +447,7 @@ impl<L: Language> NodeExpr<L> {
         egraph: &mut EGraph<L, N>,
         left: &PatternAst<L>,
         right: &PatternAst<L>,
-        subst: &Subst,
+        subst: Option<&Subst>,
         var_memo: VarMemo<L>,
     ) -> (NodeExpr<L>, VarMemo<L>) {
         let mut graphsubst = Default::default();
@@ -566,8 +590,8 @@ impl<L: Language> History<L> {
         reason: String,
     ) {
         println!("adding union proof {} and {}", fromid, toid);
-        let from_node = NodeExpr::from_pattern_ast(self, egraph, &from, &subst, None, None, false).0;
-        let to_node = NodeExpr::from_pattern_ast(self, egraph, &to, &subst, None, None, false).0;
+        let from_node = NodeExpr::from_pattern_ast(self, egraph, &from, Some(&subst), None, None, false).0;
+        let to_node = NodeExpr::from_pattern_ast(self, egraph, &to, Some(&subst), None, None, false).0;
 
         self.add_connection(
             from_node.node.as_ref().unwrap().clone(),
@@ -704,35 +728,42 @@ impl<L: Language> History<L> {
             for i in 0..proof.len() {
                 proof[i] = History::<L>::lookup_all_vars(proof[i].clone(), &final_var_memo);
             }
+            assert!(self.check_proof(egraph, rules, &proof));
             return Some(proof);
         }
     }
 
-    fn check_proof<N: Analysis<L>>(&self, rules: &[&Rewrite<L, N>], proof: Proof<L>) -> bool {
+    fn check_proof<N: Analysis<L>>(&self, egraph: &mut EGraph<L, N>, rules: &[&Rewrite<L, N>], proof: &Proof<L>) -> bool {
+        println!("{}", NodeExpr::<L>::proof_to_string(rules, proof));
         for i in 0..proof.len() {
             let current = &proof[i];
             let mut num_forward = 0;
             let mut num_backward = 0;
+
             if i > 0 {
-                if !proof[i - 1].is_direction_forward {
+                if !proof[i-1].is_direction_forward {
                     num_backward = 1;
                 }
             }
-            if i < proof.len() - 1 {
-                if proof[i + 1].is_direction_forward {
+
+            if i < proof.len()-1 {
+                if proof[i].is_direction_forward {
                     num_forward = 1;
                 }
             }
 
             if current.count_forward() != num_forward {
+                println!("Count forward bad at {}! Expected {} got {}", proof[i].to_string(), num_forward, current.count_forward());
                 return false;
             } else if current.count_backwards() != num_backward {
+                println!("Count backward bad at {}!", proof[i].to_string());
                 return false;
             }
         }
 
         for i in 0..proof.len() - 1 {
             let connection = &proof[i];
+            let next = &proof[i+1];
 
             let mut sast = match &connection.rule_ref {
                 RuleReference::Index(i) => rules[*i]
@@ -752,8 +783,17 @@ impl<L: Language> History<L> {
                 RuleReference::Congruence(_l, _r) => return false,
             };
 
+            let mut rewritten = connection.clone();
+            let mut other = connection.clone();
             if connection.is_direction_forward {
-                //let rewritten = current.node.as_ref().unwrap().clone().rewrite(egraph, sast, rast, connection.subst, Default::default());
+                rewritten = Rc::new(self.rewrite_part(egraph, connection.clone(), sast, rast, true));
+                other = next.clone();
+            } else {
+                rewritten = Rc::new(self.rewrite_part(egraph, next.clone(), sast, rast, false));
+            }
+            if !rewritten.equal_to_with_vars(&other) {
+                println!("Proof check failed {} and {}", rewritten.to_string(), other.to_string());
+                return false;
             }
         }
 
@@ -1737,6 +1777,20 @@ impl<L: Language> History<L> {
         return Rc::new(head);
     }
 
+    fn rewrite_part<N: Analysis<L>>(&self, egraph: &mut EGraph<L, N>, node: Rc<NodeExpr<L>>, sast: &PatternAst<L>, rast: &PatternAst<L>, is_forward: bool) -> NodeExpr<L> {
+        if (node.is_rewritten_forward && is_forward) || (node.is_rewritten_backwards && !is_forward) {
+            node.rewrite::<N>(self, egraph, sast, rast, None, Default::default()).0
+        } else {
+            let mut head = unwrap_or_clone(node);
+            head.children = head
+                .children
+                .iter()
+                .map(|child| Rc::new(self.rewrite_part(egraph, child.clone(), sast, rast, is_forward)))
+                .collect();
+            head
+        }
+    }
+
     fn get_from_var_memo(
         node: &Rc<NodeExpr<L>>,
         var_memo_in: VarMemo<L>,
@@ -1910,7 +1964,7 @@ impl<L: Language> History<L> {
             self,
             egraph,
             sast,
-            &connection.subst,
+            Some(&connection.subst),
             None,
             Some(current_var_memo),
             true
@@ -1939,7 +1993,7 @@ impl<L: Language> History<L> {
                 self,
                 egraph,
                 sast,
-                &connection.subst,
+                Some(&connection.subst),
                 Some(&rsubst),
                 Some(current_var_memo),
                 true);
@@ -1967,7 +2021,7 @@ impl<L: Language> History<L> {
 
         let latest = proof.pop().unwrap();
         let (mut next, third_var_memo) =
-            latest.rewrite::<N>(self, egraph, sast, rast, &connection.subst, current_var_memo);
+            latest.rewrite::<N>(self, egraph, sast, rast, Some(&connection.subst), current_var_memo);
         current_var_memo = third_var_memo;
         let mut newlink = unwrap_or_clone(latest);
         newlink.rule_ref = connection.rule_ref.clone();

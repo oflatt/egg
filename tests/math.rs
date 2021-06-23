@@ -452,9 +452,7 @@ egg::test_fn! {
     math_prove_simple_match_single_var_backwards, rules(),
     "a" => "(+ (+ (+ a 0) 0) 0)"
     @check |mut r: Runner<Math, ConstantFold>| {
-        check_proof(&mut r, rules(), "(+ (+ (+ a 0) 0) 0)",
-                    "a",
-                    Some(vec!["(+ (+ (+ a 0) 0) 0)", "<= add-zero", "(+ (+ (<= a) 0) 0)", "<= add-zero", "(+ (<= a) 0)", "<= add-zero", "(<= a)"]));
+        check_proof_exists(&mut r, rules(), "(+ (+ (+ a 0) 0) 0)", "a");
     }
 }
 
@@ -466,19 +464,7 @@ egg::test_fn! {
         "(+ 1 (- a (* (- 2 1) a)))" => "1"
     @check |mut r: Runner<Math, ConstantFold>| {
         //r.egraph.dot().to_png("target/newegraph.png").unwrap();
-        check_proof(&mut r, rules(), "(+ 1 (- a (* (- 2 1) a)))",
-                                    "1",
-                                    Some(vec!["(+ 1 (- a (=> (* (- 2 1) a))))",
-                                    "comm-mul =>",
-                                    "(+ 1 (- a (* a (=> (- 2 1)))))",
-                                    "metadata-eval =>",
-                                    "(+ 1 (- a (* a 1)))",
-                                    "<= mul-one",
-                                    "(+ 1 (=> (- a (<= a))))",
-                                    "cancel-sub =>",
-                                    "(=> (+ 1 0))",
-                                    "metadata-eval =>",
-                                    "1"]));
+        check_proof_exists(&mut r, rules(), "(+ 1 (- a (* (- 2 1) a)))", "1");
     }
 }
 
@@ -490,18 +476,7 @@ egg::test_fn! {
     "(+ 1 (- a (* (- 2 1) a)))" => "1"
     @check |mut r: Runner<Math, ConstantFold>| {
         println!("running proof");
-        check_proof(&mut r, rules(), "1",
-                        "(+ 1 (- a (* (- 2 1) a)))",
-                        Some(vec!["1",
-                                    "<= metadata-eval",
-                                    "(<= (+ 1 0))",
-                                    "<= cancel-sub",
-                                    "(+ 1 (<= (- a (=> a))))",
-                                    "mul-one =>",
-                                    "(+ 1 (- a (* a 1)))",
-                                    "<= metadata-eval",
-                                    "(+ 1 (- a (* a (<= (- 2 1)))))",
-                                    "<= comm-mul", "(+ 1 (- a (<= (* (- 2 1) a))))"]));
+        check_proof_exists(&mut r, rules(), "1", "(+ 1 (- a (* (- 2 1) a)))");
     }
 }
 
@@ -512,8 +487,7 @@ egg::test_fn! {
                      .with_scheduler(SimpleScheduler),
     "(i (pow x 1) x)" => "(/ (pow x 2) 2)"
     @check |mut r: Runner<Math, ConstantFold>| {
-        check_proof(&mut r, rules(), "(i (pow x 1) x)", "(/ (pow x 2) 2)",
-                    Some(vec!["(=> (i (pow x 1) x))", "i-power-const =>", "(/ (pow x (=> (+ 1 1))) (+ 1 1))", "metadata-eval =>", "(/ (pow x 2) (=> (+ 1 1)))", "metadata-eval =>", "(/ (pow x 2) 2)"]));
+        check_proof_exists(&mut r, rules(), "(i (pow x 1) x)", "(/ (pow x 2) 2)");
     }
 }
 
