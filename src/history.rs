@@ -176,6 +176,8 @@ impl<L: Language> NodeExpr<L> {
 
     fn deep_copy(&self) -> NodeExpr<L> {
         let mut head = self.clone();
+        head.is_rewritten_backwards = false;
+        head.is_rewritten_forward = false;
         head.children = head
             .children
             .iter()
@@ -558,7 +560,6 @@ impl<L: Language> History<L> {
         toid: Id,
         egraph: &EGraph<L, N>,
     ) {
-        println!("adding union {} and {}", fromid, toid);
         assert!(from != to);
         self.add_connection(
             from.clone(),
@@ -589,7 +590,6 @@ impl<L: Language> History<L> {
         subst: Subst,
         reason: String,
     ) {
-        println!("adding union proof {} and {}", fromid, toid);
         let from_node = NodeExpr::from_pattern_ast(self, egraph, &from, Some(&subst), None, None, false).0;
         let to_node = NodeExpr::from_pattern_ast(self, egraph, &to, Some(&subst), None, None, false).0;
 
@@ -617,7 +617,6 @@ impl<L: Language> History<L> {
             applications.affected_classes,
             applications.from_classes
         ) {
-            println!("adding application {} and {}", from_class, class);
             let cfrom = from.clone().map_children(|child| egraph.find(child));
             let cto = to.clone().map_children(|child| egraph.find(child));
             self.add_connection(
@@ -830,11 +829,12 @@ impl<L: Language> History<L> {
         &self,
         egraph: &mut EGraph<L, N>,
         rules: &[&Rewrite<L, N>],
-        left: Rc<NodeExpr<L>>,
+        left_in: Rc<NodeExpr<L>>,
         var_memo: VarMemo<L>,
         seen_memo: SeenMemo<L>,
         target_index: usize,
     ) -> (Proof<L>, VarMemo<L>) {
+        let left = Rc::new(left_in.remove_rewrite_dirs());
         let mut current_var_memo = var_memo;
         if &left.node == &None {
             return (vec![left], current_var_memo);
@@ -848,7 +848,6 @@ impl<L: Language> History<L> {
                     .clone()
                     .map_children(|id| egraph.find(id))
             {
-                println!("Proven to index");
                 let ages = self.rec_age_calculation(
                     egraph,
                     &proof.last().unwrap(),
@@ -857,13 +856,12 @@ impl<L: Language> History<L> {
                     &current_var_memo,
                 );
                 let including = ages[&target_index].clone();
-                println!("To index age {}", including.0);
                 return (proof, current_var_memo);
             }
-            let current = proof.pop().unwrap();
+            let current_save = proof.pop().unwrap();
+            let current = Rc::new(current_save.remove_rewrite_dirs());
             let ages = self.rec_age_calculation(egraph, &current, target_index, usize::MAX, &current_var_memo);
             let including = ages[&target_index].clone();
-            println!("To index age {}", including.0);
             let (mut subproof, new_var_memo) = self.take_path_including(
                 egraph,
                 rules,
@@ -874,6 +872,7 @@ impl<L: Language> History<L> {
                 true,
                 true,
             );
+            subproof[0] = Rc::new(subproof[0].combine_dirs(&current_save));
             proof.extend(subproof);
             current_var_memo = new_var_memo;
         }
@@ -1411,10 +1410,6 @@ impl<L: Language> History<L> {
             new_node.children[child_index] = proof[i].clone();
             new_node.rule_ref = proof[i].rule_ref.clone();
             new_node.is_direction_forward = proof[i].is_direction_forward;
-            if i != 0 {
-                new_node.is_rewritten_forward = false;
-                new_node.is_rewritten_backwards = false;
-            }
 
             proof[i] = Rc::new(new_node);
         }
@@ -1435,14 +1430,14 @@ impl<L: Language> History<L> {
         &self,
         egraph: &mut EGraph<L, N>,
         rules: &[&Rewrite<L, N>],
-        mut left: Rc<NodeExpr<L>>,
-        mut right: Rc<NodeExpr<L>>,
+        left_in: Rc<NodeExpr<L>>,
+        right_in: Rc<NodeExpr<L>>,
         mut current_var_memo: VarMemo<L>,
         current_seen_memo: SeenMemo<L>,
         max_age: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
-        left = History::<L>::lookup_all_vars(left, &current_var_memo);
-        right = History::<L>::lookup_all_vars(right, &current_var_memo);
+        let left = Rc::new(History::<L>::lookup_all_vars(left_in.clone(), &current_var_memo).remove_rewrite_dirs());
+        let right = Rc::new(History::<L>::lookup_all_vars(right_in.clone(), &current_var_memo).remove_rewrite_dirs());
 
         let mut prev: HashMap<usize, usize> = Default::default();
         let mut prevc: HashMap<usize, &RewriteConnection<L>> = Default::default();
@@ -1510,12 +1505,13 @@ impl<L: Language> History<L> {
                 true,
             );
             current_var_memo = new_var_memo;
+            let middle = subproof.pop().unwrap();
             println!("Finished left pattern");
             let (restproof, second_memo) = self
                 .find_proof_paths(
                     egraph,
                     rules,
-                    subproof.pop().unwrap(),
+                    middle.clone(),
                     right,
                     current_var_memo,
                     current_seen_memo.clone(),
@@ -1523,8 +1519,10 @@ impl<L: Language> History<L> {
                 )
                 .unwrap();
             current_var_memo = second_memo;
+            restproof[0].combine_dirs(&middle);
             subproof.extend(restproof);
-
+            
+            let l = subproof.len();
             return Some((subproof, current_var_memo));
         } else if age == right_ages.get(&right_node).unwrap().0 {
             println!("Taking path on right pattern");
@@ -1572,17 +1570,20 @@ impl<L: Language> History<L> {
                 false,
             );
             println!("Finished left pattern");
-            let (restproof, final_var_memo) = self
+            let middle = subproof.pop().unwrap();
+
+            let (mut restproof, final_var_memo) = self
                 .find_proof_paths(
                     egraph,
                     rules,
-                    subproof.pop().unwrap(),
+                    Rc::new(middle.remove_rewrite_dirs()),
                     right,
                     new_var_memo,
                     current_seen_memo.clone(),
                     usize::MAX,
                 )
                 .unwrap();
+            restproof[0] = Rc::new(restproof[0].combine_dirs(&middle));
             subproof.extend(restproof);
             return Some((subproof, final_var_memo));
         }
@@ -1592,14 +1593,16 @@ impl<L: Language> History<L> {
         &self,
         egraph: &mut EGraph<L, N>,
         rules: &[&Rewrite<L, N>],
-        left: Rc<NodeExpr<L>>,
-        right: Rc<NodeExpr<L>>,
+        left_in: Rc<NodeExpr<L>>,
+        right_in: Rc<NodeExpr<L>>,
         is_left_backwards: bool,
         var_memo: VarMemo<L>,
         seen_memo: SeenMemo<L>,
         (leftpath, rightpath): (Vec<&RewriteConnection<L>>, Vec<&RewriteConnection<L>>),
         max_age: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, VarMemo<L>)> {
+        let left = Rc::new(left_in.remove_rewrite_dirs());
+        let right = Rc::new(right_in.remove_rewrite_dirs());
         let mut current_var_memo = var_memo;
         let mut current_seen_memo = seen_memo;
         let leftsize = leftpath.len();
@@ -1614,7 +1617,8 @@ impl<L: Language> History<L> {
             } else {
                 connection = rightpath[i - leftsize];
             }
-            let recent = proof.pop().unwrap();
+            let middle = proof.pop().unwrap();
+            let recent = Rc::new(middle.remove_rewrite_dirs());
             let ages = self.rec_age_calculation(egraph, &recent, connection.index, usize::MAX, &current_var_memo);
             println!(
                 "Applying path age {} other side {}",
@@ -1632,7 +1636,7 @@ impl<L: Language> History<L> {
                 connection.prev,
                 enode_to_string(&self.graph[connection.prev].node)
             );
-            if let Some((subproof, vmemo)) = self.prove_one_step(
+            if let Some((mut subproof, vmemo)) = self.prove_one_step(
                 egraph,
                 rules,
                 recent,
@@ -1643,45 +1647,10 @@ impl<L: Language> History<L> {
                 max_age,
             ) {
                 current_var_memo = vmemo;
+                subproof[0] = Rc::new(subproof[0].combine_dirs(&middle));
                 proof.extend(subproof);
             } else {
                 panic!("failed to find subproof");
-                return None;
-            }
-        }
-
-        if proof[proof.len() - 1].node != right.node {
-            println!("recur proof");
-            let latest = proof.pop().unwrap();
-            let rest_of_proof = self.find_proof_paths(
-                egraph,
-                rules,
-                latest,
-                right.clone(),
-                current_var_memo.clone(),
-                current_seen_memo.clone(),
-                usize::MAX,
-            );
-            if let Some((subproof, vmemo)) = rest_of_proof {
-                current_var_memo = vmemo;
-                proof.extend(subproof);
-            } else {
-                return None;
-            }
-        } else {
-            println!("Nodes the same ");
-            let (success, vmemo) = self.prove_children_equal(
-                egraph,
-                rules,
-                right.clone(),
-                &mut proof,
-                current_var_memo.clone(),
-                current_seen_memo.clone(),
-            );
-            if success {
-                current_var_memo = vmemo;
-            } else {
-                panic!("Failed to prove children equal");
                 return None;
             }
         }
@@ -1827,7 +1796,7 @@ impl<L: Language> History<L> {
         &self,
         egraph: &mut EGraph<L, N>,
         rules: &[&Rewrite<L, N>],
-        left: Rc<NodeExpr<L>>,
+        left_in: Rc<NodeExpr<L>>,
         connection: &RewriteConnection<L>,
         var_memo: Vector<Rc<NodeExpr<L>>>,
         seen_memo: SeenMemo<L>,
@@ -1835,6 +1804,7 @@ impl<L: Language> History<L> {
         max_age: usize,
     ) -> Option<(Vec<Rc<NodeExpr<L>>>, Vector<Rc<NodeExpr<L>>>)> {
         // returns a new var_memo
+        let left = Rc::new(left_in.remove_rewrite_dirs());
         let mut current_var_memo = var_memo;
         let varpat = "?a".parse::<PatternAst<L>>().unwrap();
 
@@ -1853,25 +1823,6 @@ impl<L: Language> History<L> {
 
             let mut proof = vec![left];
 
-            // first prove at least top enode matches
-            /*
-            let mut var_children = vec![];
-            eleft.for_each(|child| {
-                let var_num = current_var_memo.len();
-                let mut new_placeholder = NodeExpr::new(None, vec![]);
-                new_placeholder.var_reference = var_num;
-                let rc = Rc::new(new_placeholder);
-                current_var_memo = current_var_memo.push_back(rc.clone());
-                var_children.push(rc);
-            });
-            println!("Right node for congruence is {}", enode_to_string(eleft));
-            let right_enode_nodeexpr = NodeExpr::<L>::new(Some(eleft.clone().map_children(|child| egraph.find_max_age(child, usize::MAX))), var_children);
-            let (initial_proof, imemo) = self.find_proof_paths(egraph, rules, proof.pop().unwrap(),
-                                                                Rc::new(right_enode_nodeexpr), current_var_memo, seen_memo.clone(), usize::MAX).unwrap();
-            proof.extend(initial_proof);
-            current_var_memo = imemo;
-            */
-
             let ages = self.rec_age_calculation(
                 egraph,
                 &proof.last().unwrap(),
@@ -1879,12 +1830,9 @@ impl<L: Language> History<L> {
                 usize::MAX,
                 &current_var_memo,
             );
-            println!(
-                "After top congruence age {} other side {}",
-                &ages[&connection.index].0, &ages[&connection.prev].0
-            );
+            
             println!("Now congruence expression is {}", proof.last().unwrap().to_string());
-            println!(
+            /*println!(
                 "From programs {} other side {}",
                 ages[&connection.index].2.to_string(),
                 &ages[&connection.prev].2.to_string()
@@ -1895,22 +1843,20 @@ impl<L: Language> History<L> {
                 enode_to_string(&self.graph[connection.index].node),
                 connection.prev,
                 enode_to_string(&self.graph[connection.prev].node)
-            );
+            );*/
 
             let mut rindecies = vec![];
             eright.for_each(|child_index| rindecies.push(child_index));
             let mut counter = 0;
+            
             eleft.for_each(|child_index| {
                 let rchild_index = rindecies[counter];
 
                 if child_index != rchild_index {
                     println!("Proving congruence child {}", counter);
-                    let current = proof.pop().unwrap();
-                    println!(
-                        "Congruence node {}",
-                        enode_to_string(current.node.as_ref().unwrap())
-                    );
-                    println!("children len {}", current.children.len());
+                    
+                    let first = proof.pop().unwrap();
+                    let current = Rc::new(first.remove_rewrite_dirs());
                     let (mut subproof, new_memo) = self.prove_to_index(
                         egraph,
                         rules,
@@ -1920,6 +1866,7 @@ impl<L: Language> History<L> {
                         usize::from(rchild_index),
                     );
                     self.wrap_child_proof(&mut subproof, &current, counter);
+                    subproof[0] = Rc::new(subproof[0].combine_dirs(&first));
                     proof.extend(subproof);
                     current_var_memo = new_memo;
                 }
@@ -1934,7 +1881,6 @@ impl<L: Language> History<L> {
         if is_backwards {
             std::mem::swap(&mut rnode, &mut lnode);
         }
-        println!("rnode {} lnode {}", enode_to_string(&rnode), enode_to_string(&lnode));
 
         let mut sast = match &connection.rule_ref {
             RuleReference::Index(i) => rules[*i]
@@ -2011,7 +1957,6 @@ impl<L: Language> History<L> {
             seen_memo.clone(),
             usize::MAX,
         );
-        println!("After searcher");
         if maybe_subproof == None {
             return None;
         }
@@ -2020,73 +1965,20 @@ impl<L: Language> History<L> {
         current_var_memo = unwrapped_subproof.1;
 
         let latest = proof.pop().unwrap();
+        assert!(latest.count_forward() == 0);
         let (mut next, third_var_memo) =
-            latest.rewrite::<N>(self, egraph, sast, rast, Some(&connection.subst), current_var_memo);
+            Rc::new(latest.clone().remove_rewrite_dirs()).rewrite::<N>(self, egraph, sast, rast, Some(&connection.subst), current_var_memo);
         current_var_memo = third_var_memo;
-        let mut newlink = unwrap_or_clone(latest);
+        let mut newlink = unwrap_or_clone(latest.clone());
         newlink.rule_ref = connection.rule_ref.clone();
         newlink.is_direction_forward = direction;
         if direction {
             newlink.is_rewritten_forward = true;
-            next.is_rewritten_backwards = false;
         } else {
-            newlink.is_rewritten_forward = false;
             next.is_rewritten_backwards = true;
         }
-        proof.push(Rc::new(newlink));
+        proof.push(Rc::new(newlink.combine_dirs(&latest)));
         proof.push(Rc::new(next));
         Some((proof, current_var_memo))
-    }
-
-    fn prove_children_equal<N: Analysis<L>>(
-        &self,
-        egraph: &mut EGraph<L, N>,
-        rules: &[&Rewrite<L, N>],
-        right: Rc<NodeExpr<L>>,
-        proof: &mut Vec<Rc<NodeExpr<L>>>,
-        var_memo: Vector<Rc<NodeExpr<L>>>,
-        seen_memo: SeenMemo<L>,
-    ) -> (bool, VarMemo<L>) {
-        let left = proof[proof.len() - 1].clone();
-        if left.children.len() != right.children.len() {
-            panic!(
-                "Found equal enodes but different number of children: {} and {}",
-                left.to_string(),
-                right.to_string()
-            );
-        }
-        let mut current_var_memo = var_memo;
-        for i in 0..left.children.len() {
-            let lchild = left.children[i].clone();
-            let rchild = right.children[i].clone();
-            let proof_equal_maybe = self.find_proof_paths(
-                egraph,
-                rules,
-                lchild,
-                rchild,
-                current_var_memo,
-                seen_memo.clone(),
-                usize::MAX,
-            );
-            if proof_equal_maybe == None {
-                return (false, Default::default());
-            }
-            let (proof_equal, new_var_memo) = proof_equal_maybe.unwrap();
-            current_var_memo = new_var_memo;
-            let mut latest = proof.pop().unwrap();
-            for j in 0..proof_equal.len() {
-                let mut newlink = unwrap_or_clone(latest);
-                newlink.children[i] = proof_equal[j].clone();
-                newlink.rule_ref = proof_equal[j].rule_ref.clone();
-                newlink.is_direction_forward = proof_equal[j].is_direction_forward;
-                if j != 0 {
-                    newlink.is_rewritten_forward = false;
-                    newlink.is_rewritten_backwards = false;
-                }
-                proof.push(Rc::new(newlink));
-                latest = proof[proof.len() - 1].clone()
-            }
-        }
-        (true, current_var_memo)
     }
 }

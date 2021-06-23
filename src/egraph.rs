@@ -624,8 +624,7 @@ impl<L: Language, N: Analysis<L>> EGraph<L, N> {
 
                 for (n, e, on) in temp_parents {
                     if let Some(old) = self.memo.insert(n.clone(), e) {
-                        println!("Found old in memo!");
-                        // uhh not sure why we need this so commented out for now
+                        // uhh not sure why this ever happens
                         to_union.push(((n.clone(), old), (on, e)));
                     }
                     parents.push((n, e));
