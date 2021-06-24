@@ -4,7 +4,7 @@ use crate::{
     Var,
 };
 
-use::std::{println as debug};
+use log::debug;
 
 use rpds::{HashTrieMap, HashTrieSet, List, Vector};
 use std::collections::VecDeque;
