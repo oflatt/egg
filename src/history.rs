@@ -176,8 +176,6 @@ impl<L: Language> NodeExpr<L> {
 
     fn deep_copy(&self) -> NodeExpr<L> {
         let mut head = self.clone();
-        head.is_rewritten_backwards = false;
-        head.is_rewritten_forward = false;
         head.children = head
             .children
             .iter()
@@ -848,31 +846,22 @@ impl<L: Language> History<L> {
                     .clone()
                     .map_children(|id| egraph.find(id))
             {
-                let ages = self.rec_age_calculation(
-                    egraph,
-                    &proof.last().unwrap(),
-                    target_index,
-                    usize::MAX,
-                    &current_var_memo,
-                );
-                let including = ages[&target_index].clone();
                 return (proof, current_var_memo);
             }
-            let current_save = proof.pop().unwrap();
-            let current = Rc::new(current_save.remove_rewrite_dirs());
+            let current = proof.pop().unwrap();
             let ages = self.rec_age_calculation(egraph, &current, target_index, usize::MAX, &current_var_memo);
             let including = ages[&target_index].clone();
             let (mut subproof, new_var_memo) = self.take_path_including(
                 egraph,
                 rules,
-                current,
+                current.clone(),
                 current_var_memo,
                 seen_memo.clone(),
                 including,
                 true,
                 true,
             );
-            subproof[0] = Rc::new(subproof[0].combine_dirs(&current_save));
+            subproof[0] = Rc::new(subproof[0].combine_dirs(&current));
             proof.extend(subproof);
             current_var_memo = new_var_memo;
         }
@@ -1506,8 +1495,9 @@ impl<L: Language> History<L> {
             );
             current_var_memo = new_var_memo;
             let middle = subproof.pop().unwrap();
+            println!("Middle before {}", middle.to_string());
             println!("Finished left pattern");
-            let (restproof, second_memo) = self
+            let (mut restproof, second_memo) = self
                 .find_proof_paths(
                     egraph,
                     rules,
@@ -1519,10 +1509,9 @@ impl<L: Language> History<L> {
                 )
                 .unwrap();
             current_var_memo = second_memo;
-            restproof[0].combine_dirs(&middle);
+            restproof[0] = Rc::new(restproof[0].combine_dirs(&middle));
             subproof.extend(restproof);
             
-            let l = subproof.len();
             return Some((subproof, current_var_memo));
         } else if age == right_ages.get(&right_node).unwrap().0 {
             println!("Taking path on right pattern");
@@ -1551,11 +1540,8 @@ impl<L: Language> History<L> {
                 .unwrap();
 
             let middle_prog = restproof.pop().unwrap();
-            let combined = subproof[0].clone().combine_dirs(&middle_prog);
-            restproof.push(Rc::new(combined));
-            for prog in subproof.into_iter().skip(1) {
-                restproof.push(prog);
-            }
+            subproof[0] = Rc::new(subproof[0].combine_dirs(&middle_prog));
+            restproof.extend(subproof);
             return Some((restproof, final_var_memo));
         } else {
             println!("Top level path");
@@ -1618,8 +1604,7 @@ impl<L: Language> History<L> {
                 connection = rightpath[i - leftsize];
             }
             let middle = proof.pop().unwrap();
-            let recent = Rc::new(middle.remove_rewrite_dirs());
-            let ages = self.rec_age_calculation(egraph, &recent, connection.index, usize::MAX, &current_var_memo);
+            let ages = self.rec_age_calculation(egraph, &middle, connection.index, usize::MAX, &current_var_memo);
             println!(
                 "Applying path age {} other side {}",
                 &ages[&connection.index].0, &ages[&connection.prev].0
@@ -1639,7 +1624,7 @@ impl<L: Language> History<L> {
             if let Some((mut subproof, vmemo)) = self.prove_one_step(
                 egraph,
                 rules,
-                recent,
+                middle.clone(),
                 connection,
                 current_var_memo,
                 current_seen_memo.clone(),
@@ -1832,18 +1817,6 @@ impl<L: Language> History<L> {
             );
             
             println!("Now congruence expression is {}", proof.last().unwrap().to_string());
-            /*println!(
-                "From programs {} other side {}",
-                ages[&connection.index].2.to_string(),
-                &ages[&connection.prev].2.to_string()
-            );
-            println!(
-                "Path enodes [{}]{} and [{}]{}",
-                connection.index,
-                enode_to_string(&self.graph[connection.index].node),
-                connection.prev,
-                enode_to_string(&self.graph[connection.prev].node)
-            );*/
 
             let mut rindecies = vec![];
             eright.for_each(|child_index| rindecies.push(child_index));
@@ -1855,18 +1828,17 @@ impl<L: Language> History<L> {
                 if child_index != rchild_index {
                     println!("Proving congruence child {}", counter);
                     
-                    let first = proof.pop().unwrap();
-                    let current = Rc::new(first.remove_rewrite_dirs());
+                    let middle = proof.pop().unwrap();
                     let (mut subproof, new_memo) = self.prove_to_index(
                         egraph,
                         rules,
-                        current.children[counter].clone(),
+                        middle.children[counter].clone(),
                         current_var_memo.clone(),
                         seen_memo.clone(),
                         usize::from(rchild_index),
                     );
-                    self.wrap_child_proof(&mut subproof, &current, counter);
-                    subproof[0] = Rc::new(subproof[0].combine_dirs(&first));
+                    self.wrap_child_proof(&mut subproof, &middle, counter);
+                    subproof[0] = Rc::new(subproof[0].combine_dirs(&middle));
                     proof.extend(subproof);
                     current_var_memo = new_memo;
                 }
@@ -1965,7 +1937,6 @@ impl<L: Language> History<L> {
         current_var_memo = unwrapped_subproof.1;
 
         let latest = proof.pop().unwrap();
-        assert!(latest.count_forward() == 0);
         let (mut next, third_var_memo) =
             Rc::new(latest.clone().remove_rewrite_dirs()).rewrite::<N>(self, egraph, sast, rast, Some(&connection.subst), current_var_memo);
         current_var_memo = third_var_memo;
@@ -1977,7 +1948,7 @@ impl<L: Language> History<L> {
         } else {
             next.is_rewritten_backwards = true;
         }
-        proof.push(Rc::new(newlink.combine_dirs(&latest)));
+        proof.push(Rc::new(newlink));
         proof.push(Rc::new(next));
         Some((proof, current_var_memo))
     }

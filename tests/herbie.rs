@@ -524,7 +524,7 @@ fn herbie_prove_2() {
     let second = "(+ f64 1 1)";
     runner = runner.run(&math_rules());
     //assert!(runner.egraph.equivs(&first.parse().unwrap(), &second.parse().unwrap()).len() == 1);
-    check_proof(&mut runner, math_rules(), first, second, None);
+    check_proof_exists(&mut runner, math_rules(), first, second);
 }
 
 
