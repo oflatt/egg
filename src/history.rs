@@ -700,7 +700,7 @@ impl<L: Language> History<L> {
         left: &RecExpr<L>,
         right: &RecExpr<L>,
     ) -> Option<Proof<L>> {
-        println!("Produce proof!");
+        //println!("Produce proof!");
         if egraph.add_expr(&left) != egraph.add_expr(&right) {
             return None;
         } else {
