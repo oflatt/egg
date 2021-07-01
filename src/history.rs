@@ -26,7 +26,7 @@ enum RuleReference<L> {
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 pub struct RewriteConnection<L: Language> {
-    pub index: usize,
+    pub next: usize,
     pub prev: usize,
     subst: Subst,
     pub is_direction_forward: bool,
@@ -411,7 +411,7 @@ impl<L: Language> History<L> {
                 return current;
             } else {
                 for child in &self.graph[current].children {
-                    todo.push_back(child.index);
+                    todo.push_back(child.next);
                 }
             }
         }
@@ -438,7 +438,7 @@ impl<L: Language> History<L> {
         assert!(currentfrom != currentto);
 
         let fromr = RewriteConnection {
-            index: currentto,
+            next: currentto,
             prev: currentfrom,
             subst: subst.clone(),
             is_direction_forward: true,
@@ -447,7 +447,7 @@ impl<L: Language> History<L> {
         };
 
         let tor = RewriteConnection {
-            index: currentfrom,
+            next: currentfrom,
             prev: currentto,
             subst: subst.clone(),
             is_direction_forward: false,
@@ -661,8 +661,8 @@ impl<L: Language> History<L> {
                 return current;
             } else {
                 for child in &self.graph[current].children {
-                    if !seen.contains(&child.index) {
-                        todo = child.index;
+                    if !seen.contains(&child.next) {
+                        todo = child.next;
                         break;
                     }
                 }
@@ -753,9 +753,9 @@ impl<L: Language> History<L> {
         }
 
         for child in &self.graph[current].children {
-            if prev.get(&child.index) == None {
-                prev.insert(child.index, current);
-                prevc.insert(child.index, &child);
+            if prev.get(&child.next) == None {
+                prev.insert(child.next, current);
+                prevc.insert(child.next, &child);
                 let (
                     child_left,
                     child_right,
@@ -764,7 +764,7 @@ impl<L: Language> History<L> {
                     mut child_left_age,
                     mut child_right_age,
                 ) = self.find_youngest_recursive(
-                    child.index,
+                    child.next,
                     egraph,
                     left,
                     right,
@@ -869,7 +869,7 @@ impl<L: Language> History<L> {
             }
 
             for child in &self.graph[current].children {
-                todo.push_back(child.index);
+                todo.push_back(child.next);
             }
         }
         ages
@@ -903,10 +903,10 @@ impl<L: Language> History<L> {
             );
 
             for child in &self.graph[current].children {
-                if !seen.contains(&child.index) {
-                    todo.push_front(child.index);
-                    seen.insert(child.index);
-                    println!("Connects {}, age {}", child.index, child.age);
+                if !seen.contains(&child.next) {
+                    todo.push_front(child.next);
+                    seen.insert(child.next);
+                    println!("Connects {}, age {}", child.next, child.age);
                 }
             }
         }
@@ -945,10 +945,10 @@ impl<L: Language> History<L> {
                 }
 
                 let temp = (usize::MAX, 0, prog.clone(), 0);
-                let current_age = ages.get(&child.index).unwrap_or(&temp);
+                let current_age = ages.get(&child.next).unwrap_or(&temp);
                 if mage < current_age.0 {
-                    ages.insert(child.index, (mage, pointer, mprog, classpointer));
-                    todo.push_back(child.index);
+                    ages.insert(child.next, (mage, pointer, mprog, classpointer));
+                    todo.push_back(child.next);
                 }
             }
         }
@@ -1024,7 +1024,7 @@ impl<L: Language> History<L> {
             while todo.len() > 0 {
                 let current = todo.pop_front().unwrap();
                 for connection in &self.graph[current].children {
-                    let child = connection.index;
+                    let child = connection.next;
 
                     if (is_by_age && (connection.age == including.0))
                         || ((!is_by_age) && (child == including.0))
@@ -1362,20 +1362,20 @@ impl<L: Language> History<L> {
                 connection = rightpath[i - leftsize];
             }
             let middle = proof.pop().unwrap();
-            let ages = self.rec_age_calculation(egraph, &middle, connection.index);
+            let ages = self.rec_age_calculation(egraph, &middle, connection.next);
             debug!(
                 "Applying path age {} other side {}",
-                &ages[&connection.index].0, &ages[&connection.prev].0
+                &ages[&connection.next].0, &ages[&connection.prev].0
             );
             debug!(
                 "From programs {} other side {}",
-                ages[&connection.index].2.to_string(),
+                ages[&connection.next].2.to_string(),
                 &ages[&connection.prev].2.to_string()
             );
             debug!(
                 "Path enodes [{}]{} and [{}]{}",
-                connection.index,
-                enode_to_string(&self.graph[connection.index].node),
+                connection.next,
+                enode_to_string(&self.graph[connection.next].node),
                 connection.prev,
                 enode_to_string(&self.graph[connection.prev].node)
             );
@@ -1501,7 +1501,7 @@ impl<L: Language> History<L> {
             return proof;
         }
 
-        let mut rnode = self.graph[connection.index].node.clone();
+        let mut rnode = self.graph[connection.next].node.clone();
         let mut lnode = self.graph[connection.prev].node.clone();
         if is_backwards {
             std::mem::swap(&mut rnode, &mut lnode);

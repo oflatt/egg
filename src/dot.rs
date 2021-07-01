@@ -227,7 +227,7 @@ where
         for graphnode in &hist.graph {
             for connection in &graphnode.children {
                 if connection.is_direction_forward {
-                    let othernode = &hist.graph[connection.index].node;
+                    let othernode = &hist.graph[connection.next].node;
                     let id1 = self.egraph.lookup(graphnode.node.clone()).unwrap();
                     let id2 = self.egraph.lookup(othernode.clone()).unwrap();
                     /*println!("node 1: {}", enode_to_string(node));
