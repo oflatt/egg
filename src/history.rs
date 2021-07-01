@@ -13,9 +13,9 @@ use symbolic_expressions::Sexp;
 
 pub type Proof<L> = Vec<Rc<NodeExpr<L>>>;
 
-// so that creating a new path with 1 added is O(log(n))
 type SeenMemo<L> = HashTrieSet<(Rc<NodeExpr<L>>, Rc<NodeExpr<L>>)>;
-type AgeRec<L> = HashMap<usize, (usize, usize, Rc<NodeExpr<L>>, usize)>; // from node to (age, pointer, nodeexpr, classpointer)
+// from node to (age, start-pointer, nodeexpr, classpointer)
+type AgeRec<L> = HashMap<usize, (usize, usize, Rc<NodeExpr<L>>, usize)>;
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
 enum RuleReference<L> {
@@ -257,7 +257,7 @@ impl<L: Language> NodeExpr<L> {
             }
         };
 
-        if (self.is_direction_forward) {
+        if self.is_direction_forward {
             reason.to_owned() + &" =>"
         } else {
             "<= ".to_owned() + reason
@@ -655,7 +655,7 @@ impl<L: Language> History<L> {
         let mut seen: HashSet<usize> = Default::default();
         let mut todo = start;
         seen.insert(todo);
-        while (true) {
+        loop {
             let current = todo;
             if self.graph[current].children.len() == 1 {
                 return current;
@@ -666,15 +666,13 @@ impl<L: Language> History<L> {
                         break;
                     }
                 }
-                if (todo == current) {
+                if todo == current {
                     assert!(self.graph[current].children.len() <= 1);
                     return current;
                 }
                 seen.insert(current);
             }
         }
-        assert!(false);
-        return 0;
     }
 
     fn prove_to_index<N: Analysis<L>>(
@@ -688,7 +686,7 @@ impl<L: Language> History<L> {
         let left = Rc::new(left_in.remove_rewrite_dirs());
         let mut proof = vec![left];
 
-        while true {
+        loop {
             if &proof[proof.len() - 1].node
                 == &self.graph[target_index]
                     .node
@@ -712,8 +710,6 @@ impl<L: Language> History<L> {
             subproof[0] = Rc::new(subproof[0].combine_dirs(&current));
             proof.extend(subproof);
         }
-        // unreachable
-        return proof;
     }
 
     fn find_youngest_recursive<'a, N: Analysis<L>>(
@@ -838,7 +834,7 @@ impl<L: Language> History<L> {
         let mut todo: VecDeque<usize> = VecDeque::new();
         todo.push_back(representative);
 
-        while (todo.len() > 0) {
+        while todo.len() > 0 {
             let current = todo.pop_front().unwrap();
             let cnode = self.graph[current]
                 .node
@@ -892,7 +888,7 @@ impl<L: Language> History<L> {
 
         println!("Prog enode {}", enode_to_string(&prog.node));
 
-        while (todo.len() > 0) {
+        while todo.len() > 0 {
             let current = todo.pop_front().unwrap();
             println!(
                 "Current {}, enode {}, uncann {}",
@@ -932,7 +928,7 @@ impl<L: Language> History<L> {
         }
 
         // find nearest age until fixed point
-        while (todo.len() > 0) {
+        while todo.len() > 0 {
             let current = todo.pop_front().unwrap();
             let age = ages.get(&current).unwrap().clone();
             for child in &self.graph[current].children {
@@ -1025,7 +1021,7 @@ impl<L: Language> History<L> {
                     == left.node.clone()
             );
 
-            while (todo.len() > 0) {
+            while todo.len() > 0 {
                 let current = todo.pop_front().unwrap();
                 for connection in &self.graph[current].children {
                     let child = connection.index;
@@ -1058,7 +1054,7 @@ impl<L: Language> History<L> {
             let mut path: Vec<&RewriteConnection<L>> = Default::default();
 
             let mut trail = end;
-            while (true) {
+            loop {
                 if (trail == including.1) {
                     break;
                 }
