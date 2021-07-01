@@ -6,18 +6,15 @@ use crate::{
 
 use log::debug;
 
-use rpds::{HashTrieMap, HashTrieSet, List, Vector};
+use rpds::HashTrieSet;
 use std::collections::VecDeque;
 use std::rc::Rc;
-use std::str::FromStr;
 use symbolic_expressions::Sexp;
 
 pub type Proof<L> = Vec<Rc<NodeExpr<L>>>;
 
 // so that creating a new path with 1 added is O(log(n))
 type SeenMemo<L> = HashTrieSet<(Rc<NodeExpr<L>>, Rc<NodeExpr<L>>)>;
-type ExprMemo<L> = HashTrieSet<Rc<NodeExpr<L>>>;
-type ResultFailCache<L> = HashMap<(Rc<NodeExpr<L>>, Rc<NodeExpr<L>>), usize>;
 type AgeRec<L> = HashMap<usize, (usize, usize, Rc<NodeExpr<L>>, usize)>; // from node to (age, pointer, nodeexpr, classpointer)
 
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Hash)]
@@ -294,7 +291,6 @@ impl<L: Language> NodeExpr<L> {
         subst: Option<&Subst>, // used in proof checking, we have a full expression to rewrite
         substmap: Option<&HashMap<Var, Rc<NodeExpr<L>>>>, // optionally used to replace variables with nodeexpr
     ) -> Self {
-        let mut symbol_map: HashMap<&Var, usize> = Default::default();
         let nodes = ast.as_ref();
         let mut nodeexprs: Vec<Rc<NodeExpr<L>>> = Vec::with_capacity(nodes.len());
         let mut new_ids = Vec::with_capacity(nodes.len());
@@ -400,7 +396,7 @@ impl<L: Language> History<L> {
         let mut todo: VecDeque<usize> = VecDeque::new();
         todo.push_back(*self.memo.get(&class).unwrap());
 
-        while (true) {
+        loop {
             assert!(todo.len() > 0);
             let current = todo.pop_front().unwrap();
             let cnode = self.graph[current]
@@ -419,8 +415,6 @@ impl<L: Language> History<L> {
                 }
             }
         }
-        assert!(false);
-        return 0;
     }
 
     // from and to must be from different eclasses
@@ -434,14 +428,9 @@ impl<L: Language> History<L> {
         subst: Subst,
         egraph: &EGraph<L, N>,
     ) {
-        let mut age = self.age_counter;
+        let age = self.age_counter;
         self.age_counter += 1;
 
-        /*
-        if let RuleReference::Congruence(_l, _r) = &rule {
-            self.age_counter -= 1;
-            age -= 1;
-        }*/
         let cfrom = from.clone().map_children(|id| egraph.find(id));
         let cto = to.clone().map_children(|id| egraph.find(id));
         let currentfrom = self.find_enode_in(&cfrom, fromid, egraph);
@@ -522,33 +511,6 @@ impl<L: Language> History<L> {
         );
     }
 
-    pub(crate) fn add_applications<N: Analysis<L>>(
-        &mut self,
-        egraph: &mut EGraph<L, N>,
-        applications: Applications<L>,
-        rule: usize,
-    ) {
-        for (from, to, subst, class, from_class) in izip!(
-            applications.from_nodes,
-            applications.to_nodes,
-            applications.substs,
-            applications.affected_classes,
-            applications.from_classes
-        ) {
-            let cfrom = from.clone().map_children(|child| egraph.find(child));
-            let cto = to.clone().map_children(|child| egraph.find(child));
-            self.add_connection(
-                cfrom,
-                cto,
-                from_class,
-                class,
-                RuleReference::Index(rule),
-                subst,
-                egraph,
-            );
-        }
-    }
-
     pub(crate) fn add_union<N: Analysis<L>>(
         &mut self,
         egraph: &mut EGraph<L, N>,
@@ -570,36 +532,6 @@ impl<L: Language> History<L> {
             subst,
             egraph,
         );
-    }
-
-    fn is_arbitrary<N: Analysis<L>>(
-        rules: &[&Rewrite<L, N>],
-        rule_ref: &RuleReference<L>,
-        check_left: bool,
-    ) -> bool {
-        let mut pattern;
-        match rule_ref {
-            RuleReference::Index(i) => {
-                if check_left {
-                    pattern = rules[*i].searcher.get_ast().unwrap();
-                } else {
-                    pattern = rules[*i].applier.get_ast().unwrap();
-                }
-            }
-            RuleReference::Pattern((s, a, _)) => {
-                if check_left {
-                    pattern = s;
-                } else {
-                    pattern = a;
-                }
-            }
-            RuleReference::Congruence(_l, _r) => return true,
-        }
-        if let ENodeOrVar::Var(_) = pattern.as_ref().last().unwrap() {
-            return true;
-        } else {
-            return false;
-        }
     }
 
     // updates memo to use cannonical references
@@ -629,7 +561,7 @@ impl<L: Language> History<L> {
             // push since 0 is a special value and represents no variable
             let seen_memo: SeenMemo<L> = Default::default();
             // from an input to a fuel it failed for
-            let mut proof = self.find_proof_paths(egraph, rules, lg.clone(), rg.clone(), seen_memo);
+            let proof = self.find_proof_paths(egraph, rules, lg.clone(), rg.clone(), seen_memo);
             assert!(self.check_proof(egraph, rules, &proof));
             return Some(proof);
         }
@@ -696,7 +628,7 @@ impl<L: Language> History<L> {
                 RuleReference::Congruence(_l, _r) => return false,
             };
 
-            let mut rewritten = connection.clone();
+            let rewritten;
             let mut other = connection.clone();
             if connection.is_direction_forward {
                 rewritten =
@@ -1007,7 +939,7 @@ impl<L: Language> History<L> {
                 let mut mage = age.0;
                 let mut pointer = age.1;
                 let mut mprog = age.2.clone();
-                let mut classpointer = age.3;
+                let classpointer = age.3;
                 // if the age is from this eclass, we point to represented enode
 
                 if child.age > mage {
@@ -1175,7 +1107,7 @@ impl<L: Language> History<L> {
                 }
             }
             path.reverse();
-            let mut resulting_proof = self.apply_path(
+            let resulting_proof = self.apply_path(
                 egraph,
                 rules,
                 left,
@@ -1421,12 +1353,11 @@ impl<L: Language> History<L> {
         (leftpath, rightpath): (Vec<&RewriteConnection<L>>, Vec<&RewriteConnection<L>>),
     ) -> Proof<L> {
         let left = Rc::new(left_in.remove_rewrite_dirs());
-        let mut current_seen_memo = seen_memo;
         let leftsize = leftpath.len();
         let rightsize = rightpath.len();
         let mut proof = vec![left.clone()];
         for i in 0..(leftsize + rightsize) {
-            let mut connection;
+            let connection;
             let mut is_backwards = false;
             if i < leftsize {
                 connection = leftpath[i];
@@ -1457,7 +1388,7 @@ impl<L: Language> History<L> {
                 rules,
                 middle.clone(),
                 connection,
-                current_seen_memo.clone(),
+                seen_memo.clone(),
                 is_backwards,
             );
             subproof[0] = Rc::new(subproof[0].combine_dirs(&middle));
@@ -1538,7 +1469,7 @@ impl<L: Language> History<L> {
             direction = !direction;
         }
 
-        // congruence idea- need to move children into old eclass
+        // congruence idea- need to move children to other eclass
         if let RuleReference::Congruence(eleft_o, eright_o) = &connection.rule_ref {
             let mut eleft = eleft_o;
             let mut eright = eright_o;
@@ -1547,8 +1478,6 @@ impl<L: Language> History<L> {
             }
 
             let mut proof = vec![left];
-
-            let ages = self.rec_age_calculation(egraph, &proof.last().unwrap(), connection.index);
 
             let mut rindecies = vec![];
             eright.for_each(|child_index| rindecies.push(child_index));
