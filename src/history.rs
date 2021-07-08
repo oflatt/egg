@@ -378,6 +378,7 @@ pub struct History<L: Language> {
     pub graph: Vec<GraphNode<L>>,
     memo: HashMap<Id, usize>,
     pub age_counter: usize,
+    pub age_optimization_enabled: bool,
 }
 
 impl<L: Language> Default for History<L> {
@@ -386,6 +387,7 @@ impl<L: Language> Default for History<L> {
             graph: Default::default(),
             memo: Default::default(),
             age_counter: 1,
+            age_optimization_enabled: false,
         }
     }
 }
@@ -534,17 +536,6 @@ impl<L: Language> History<L> {
         );
     }
 
-    // updates memo to use cannonical references
-    /*
-    pub(crate) fn rebuild<N: Analysis<L>>(&mut self, egraph: &EGraph<L, N>) {
-        for graphnode in self.graph.iter_mut() {
-            graphnode.node = graphnode
-                .node
-                .clone()
-                .map_children(|child| egraph.find(child));
-        }
-    }*/
-
     pub(crate) fn produce_proof<N: Analysis<L>>(
         &self,
         egraph: &mut EGraph<L, N>,
@@ -561,7 +552,7 @@ impl<L: Language> History<L> {
             // push since 0 is a special value and represents no variable
             let seen_memo: SeenMemo<L> = Default::default();
             // from an input to a fuel it failed for
-            let proof = self.find_proof_paths(egraph, rules, lg.clone(), rg.clone(), seen_memo);
+            let proof = self.prove(egraph, rules, lg.clone(), rg.clone(), seen_memo);
             assert!(self.check_proof(egraph, rules, &proof));
             return Some(proof);
         }
@@ -718,8 +709,8 @@ impl<L: Language> History<L> {
         egraph: &mut EGraph<L, N>,
         left: &Rc<NodeExpr<L>>,
         right: &Rc<NodeExpr<L>>,
-        left_ages: &AgeRec<L>,
-        right_ages: &AgeRec<L>,
+        left_ages: Option<&AgeRec<L>>,
+        right_ages: Option<&AgeRec<L>>,
         prev: &mut HashMap<usize, usize>,
         prevc: &mut HashMap<usize, &'a RewriteConnection<L>>,
         best_age: &mut usize,
@@ -744,12 +735,20 @@ impl<L: Language> History<L> {
         if cnode == ornode {
             has_found_right = true;
             last_found_right_index = current;
-            last_found_right_age = right_ages.get(&current).unwrap().0;
+            if let Some(rages) = right_ages {
+                last_found_right_age = rages.get(&current).unwrap().0;
+            } else {
+                last_found_right_age = 0;
+            }
         }
         if cnode == olnode {
             has_found_left = true;
             last_found_left_index = current;
-            last_found_left_age = left_ages.get(&current).unwrap().0;
+            if let Some(lages) = left_ages {
+                last_found_left_age = lages.get(&current).unwrap().0;
+            } else {
+                last_found_left_age = 0;
+            }
         }
 
         for child in &self.graph[current].children {
@@ -1000,18 +999,6 @@ impl<L: Language> History<L> {
             todo.push_back(including.1);
             let mut end = 0;
             let mut found = false;
-            /*
-            for connection in &self.graph[including.1].children {
-                match &connection.rule_ref {
-                    RuleReference::Pattern((searcher, applier, _)) => {
-                        debug!("Rule found: {}, {}", searcher, applier);
-                    }
-                    RuleReference::Index(index) => {
-                        debug!("Rule index found: {}, {}", rules[*index].searcher.get_ast().unwrap(), rules[*index].applier.get_ast().unwrap());
-                    }
-                    _ => {}
-                }
-            }*/
 
             assert!(
                 self.graph[including.1]
@@ -1112,7 +1099,7 @@ impl<L: Language> History<L> {
                 (path, vec![]),
             );
 
-            if should_decrease_age {
+            if should_decrease_age && self.age_optimization_enabled {
                 let new_age =
                     self.rec_age_calculation(egraph, resulting_proof.last().unwrap(), end);
                 debug!("Resulting age after path {}", new_age.get(&end).unwrap().0);
@@ -1207,138 +1194,6 @@ impl<L: Language> History<L> {
         return NodeExpr::new(node.map_children(|child| egraph.find(child)), children);
     }
 
-    fn find_youngest_proof_path<N: Analysis<L>>(
-        &self,
-        egraph: &mut EGraph<L, N>,
-        rules: &[&Rewrite<L, N>],
-        left_in: Rc<NodeExpr<L>>,
-        right_in: Rc<NodeExpr<L>>,
-        current_seen_memo: SeenMemo<L>,
-    ) -> Proof<L> {
-        let left = Rc::new(left_in.remove_rewrite_dirs());
-        let right = Rc::new(right_in.remove_rewrite_dirs());
-
-        let mut prev: HashMap<usize, usize> = Default::default();
-        let mut prevc: HashMap<usize, &RewriteConnection<L>> = Default::default();
-        let class = egraph.lookup(left.node.clone()).unwrap();
-        assert_eq!(class, egraph.lookup(right.node.clone()).unwrap());
-        self.find_enode_in(&left.node, class, egraph);
-        self.find_enode_in(&right.node, class, egraph);
-        let representative = self.find_leaf_node(*self.memo.get(&class).unwrap());
-        prev.insert(representative, representative);
-        let mut age = usize::MAX;
-        let mut left_node = 0;
-        let mut right_node = 0;
-        let mut middle_node = 0;
-        let left_ages = self.rec_age_calculation(egraph, &left, representative);
-        let right_ages = self.rec_age_calculation(egraph, &right, representative);
-        self.find_youngest_recursive(
-            representative,
-            egraph,
-            &left,
-            &right,
-            &left_ages,
-            &right_ages,
-            &mut prev,
-            &mut prevc,
-            &mut age,
-            &mut left_node,
-            &mut right_node,
-            &mut middle_node,
-        );
-        assert!(age < usize::MAX);
-        debug!("Left age is {}", left_ages.get(&left_node).unwrap().0);
-        debug!("Right age is {}", right_ages.get(&right_node).unwrap().0);
-        debug!("Age is {}", age);
-
-        if age == 0 {
-            return self.apply_path(
-                egraph,
-                rules,
-                left,
-                true,
-                current_seen_memo,
-                (vec![], vec![]),
-            );
-        }
-
-        if age == left_ages.get(&left_node).unwrap().0 {
-            debug!("Taking path on left pattern");
-            let mut subproof = self.take_path_including(
-                egraph,
-                rules,
-                left,
-                current_seen_memo.clone(),
-                left_ages.get(&left_node).unwrap().clone(),
-                true,
-                true,
-            );
-            let middle = subproof.pop().unwrap();
-            debug!("Middle before {}", middle.to_string());
-            debug!("Finished left pattern");
-            let mut restproof = self.find_proof_paths(
-                egraph,
-                rules,
-                middle.clone(),
-                right,
-                current_seen_memo.clone(),
-            );
-            restproof[0] = Rc::new(restproof[0].combine_dirs(&middle));
-            subproof.extend(restproof);
-
-            return subproof;
-        } else if age == right_ages.get(&right_node).unwrap().0 {
-            debug!("Taking path on right pattern");
-            let mut subproof = self.take_path_including(
-                egraph,
-                rules,
-                right,
-                current_seen_memo.clone(),
-                right_ages.get(&right_node).unwrap().clone(),
-                true,
-                true,
-            );
-            subproof = self.reverse_proof::<N>(subproof);
-            debug!("Finished right pattern");
-            let mut restproof = self.find_proof_paths(
-                egraph,
-                rules,
-                left,
-                Rc::new(subproof[0].clone().remove_rewrite_dirs()),
-                current_seen_memo,
-            );
-
-            let middle_prog = restproof.pop().unwrap();
-            subproof[0] = Rc::new(subproof[0].combine_dirs(&middle_prog));
-            restproof.extend(subproof);
-            return restproof;
-        } else {
-            debug!("Top level path");
-            let mut subproof = self.take_path_including(
-                egraph,
-                rules,
-                left.clone(),
-                current_seen_memo.clone(),
-                (age, left_node, left, 0),
-                true,
-                false,
-            );
-            debug!("Finished left pattern");
-            let middle = subproof.pop().unwrap();
-
-            let mut restproof = self.find_proof_paths(
-                egraph,
-                rules,
-                Rc::new(middle.remove_rewrite_dirs()),
-                right,
-                current_seen_memo.clone(),
-            );
-            restproof[0] = Rc::new(restproof[0].combine_dirs(&middle));
-            subproof.extend(restproof);
-            return subproof;
-        }
-    }
-
     fn apply_path<N: Analysis<L>>(
         &self,
         egraph: &mut EGraph<L, N>,
@@ -1395,7 +1250,7 @@ impl<L: Language> History<L> {
     }
 
     // find a sequence of rewrites between two enodes
-    fn find_proof_paths<N: Analysis<L>>(
+    fn prove<N: Analysis<L>>(
         &self,
         egraph: &mut EGraph<L, N>,
         rules: &[&Rewrite<L, N>],
@@ -1420,7 +1275,251 @@ impl<L: Language> History<L> {
             egraph.lookup(right.node.clone())
         );
 
-        self.find_youngest_proof_path(egraph, rules, left, right, current_seen_memo)
+        if self.age_optimization_enabled {
+            self.prove_without_cycle(egraph, rules, left, right, current_seen_memo)
+        } else {
+            self.prove_simple(egraph, rules, left, right, current_seen_memo)
+        }
+    }
+
+    fn prove_simple<N: Analysis<L>>(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        rules: &[&Rewrite<L, N>],
+        left_in: Rc<NodeExpr<L>>,
+        right_in: Rc<NodeExpr<L>>,
+        current_seen_memo: SeenMemo<L>,
+    ) -> Proof<L> {
+        let left = Rc::new(left_in.remove_rewrite_dirs());
+        let right = Rc::new(right_in.remove_rewrite_dirs());
+        let mut prev: HashMap<usize, usize> = Default::default();
+        let mut prevc: HashMap<usize, &RewriteConnection<L>> = Default::default();
+        let class = egraph.lookup(left.node.clone()).unwrap();
+        assert_eq!(class, egraph.lookup(right.node.clone()).unwrap());
+        self.find_enode_in(&left.node, class, egraph);
+        self.find_enode_in(&right.node, class, egraph);
+        let representative = self.find_leaf_node(*self.memo.get(&class).unwrap());
+        prev.insert(representative, representative);
+        let mut age = usize::MAX;
+        let mut left_node = 0;
+        let mut right_node = 0;
+        let mut middle_node = 0;
+        self.find_youngest_recursive(
+            representative,
+            egraph,
+            &left,
+            &right,
+            None,
+            None,
+            &mut prev,
+            &mut prevc,
+            &mut age,
+            &mut left_node,
+            &mut right_node,
+            &mut middle_node,
+        );
+
+        if age == 0 {
+            return self.prove_children_equal(egraph, rules, left, right, current_seen_memo);
+        }
+
+        debug!("Top level path");
+        let mut subproof = self.take_path_including(
+            egraph,
+            rules,
+            left.clone(),
+            current_seen_memo.clone(),
+            (age, left_node, left, 0),
+            true,
+            false,
+        );
+        let middle = subproof.pop().unwrap();
+
+        let mut restproof = self.prove(
+            egraph,
+            rules,
+            Rc::new(middle.remove_rewrite_dirs()),
+            right,
+            current_seen_memo.clone(),
+        );
+        restproof[0] = Rc::new(restproof[0].combine_dirs(&middle));
+        subproof.extend(restproof);
+        return subproof;
+    }
+
+    fn prove_children_equal<N: Analysis<L>>(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        rules: &[&Rewrite<L, N>],
+        left: Rc<NodeExpr<L>>,
+        right: Rc<NodeExpr<L>>,
+        seen_memo: SeenMemo<L>,
+    ) -> Proof<L> {
+        if left.children.len() != right.children.len() {
+            panic!(
+                "Found equal enodes but different number of children: {} and {}",
+                left.to_string(),
+                right.to_string()
+            );
+        }
+        let mut proof = vec![left.clone()];
+        for i in 0..left.children.len() {
+            let lchild = left.children[i].clone();
+            let rchild = right.children[i].clone();
+            let proof_equal = self.prove(
+                egraph,
+                rules,
+                lchild,
+                rchild,
+                seen_memo.clone(),
+            );
+            let mut latest = proof.pop().unwrap();
+            for j in 0..proof_equal.len() {
+                let mut newlink = unwrap_or_clone(latest);
+                newlink.children[i] = proof_equal[j].clone();
+                newlink.rule_ref = proof_equal[j].rule_ref.clone();
+                newlink.is_direction_forward = proof_equal[j].is_direction_forward;
+                if j != 0 {
+                    newlink.is_rewritten_forward = false;
+                    newlink.is_rewritten_backwards = false;
+                }
+                proof.push(Rc::new(newlink));
+                latest = proof[proof.len() - 1].clone()
+            }
+        }
+        proof
+    }
+
+    fn prove_without_cycle<N: Analysis<L>>(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        rules: &[&Rewrite<L, N>],
+        left_in: Rc<NodeExpr<L>>,
+        right_in: Rc<NodeExpr<L>>,
+        current_seen_memo: SeenMemo<L>,
+    ) -> Proof<L> {
+        let left = Rc::new(left_in.remove_rewrite_dirs());
+        let right = Rc::new(right_in.remove_rewrite_dirs());
+
+        let mut prev: HashMap<usize, usize> = Default::default();
+        let mut prevc: HashMap<usize, &RewriteConnection<L>> = Default::default();
+        let class = egraph.lookup(left.node.clone()).unwrap();
+        assert_eq!(class, egraph.lookup(right.node.clone()).unwrap());
+        self.find_enode_in(&left.node, class, egraph);
+        self.find_enode_in(&right.node, class, egraph);
+        let representative = self.find_leaf_node(*self.memo.get(&class).unwrap());
+        prev.insert(representative, representative);
+        let mut age = usize::MAX;
+        let mut left_node = 0;
+        let mut right_node = 0;
+        let mut middle_node = 0;
+        let left_ages = self.rec_age_calculation(egraph, &left, representative);
+        let right_ages = self.rec_age_calculation(egraph, &right, representative);
+        self.find_youngest_recursive(
+            representative,
+            egraph,
+            &left,
+            &right,
+            Some(&left_ages),
+            Some(&right_ages),
+            &mut prev,
+            &mut prevc,
+            &mut age,
+            &mut left_node,
+            &mut right_node,
+            &mut middle_node,
+        );
+        assert!(age < usize::MAX);
+        debug!("Left age is {}", left_ages.get(&left_node).unwrap().0);
+        debug!("Right age is {}", right_ages.get(&right_node).unwrap().0);
+        debug!("Age is {}", age);
+
+        if age == 0 {
+            return self.apply_path(
+                egraph,
+                rules,
+                left,
+                true,
+                current_seen_memo,
+                (vec![], vec![]),
+            );
+        }
+
+        if age == left_ages.get(&left_node).unwrap().0 {
+            debug!("Taking path on left pattern");
+            let mut subproof = self.take_path_including(
+                egraph,
+                rules,
+                left,
+                current_seen_memo.clone(),
+                left_ages.get(&left_node).unwrap().clone(),
+                true,
+                true,
+            );
+            let middle = subproof.pop().unwrap();
+            debug!("Middle before {}", middle.to_string());
+            debug!("Finished left pattern");
+            let mut restproof = self.prove(
+                egraph,
+                rules,
+                middle.clone(),
+                right,
+                current_seen_memo.clone(),
+            );
+            restproof[0] = Rc::new(restproof[0].combine_dirs(&middle));
+            subproof.extend(restproof);
+
+            return subproof;
+        } else if age == right_ages.get(&right_node).unwrap().0 {
+            debug!("Taking path on right pattern");
+            let mut subproof = self.take_path_including(
+                egraph,
+                rules,
+                right,
+                current_seen_memo.clone(),
+                right_ages.get(&right_node).unwrap().clone(),
+                true,
+                true,
+            );
+            subproof = self.reverse_proof::<N>(subproof);
+            debug!("Finished right pattern");
+            let mut restproof = self.prove(
+                egraph,
+                rules,
+                left,
+                Rc::new(subproof[0].clone().remove_rewrite_dirs()),
+                current_seen_memo,
+            );
+
+            let middle_prog = restproof.pop().unwrap();
+            subproof[0] = Rc::new(subproof[0].combine_dirs(&middle_prog));
+            restproof.extend(subproof);
+            return restproof;
+        } else {
+            debug!("Top level path");
+            let mut subproof = self.take_path_including(
+                egraph,
+                rules,
+                left.clone(),
+                current_seen_memo.clone(),
+                (age, left_node, left, 0),
+                true,
+                false,
+            );
+            debug!("Finished left pattern");
+            let middle = subproof.pop().unwrap();
+
+            let mut restproof = self.prove(
+                egraph,
+                rules,
+                Rc::new(middle.remove_rewrite_dirs()),
+                right,
+                current_seen_memo.clone(),
+            );
+            restproof[0] = Rc::new(restproof[0].combine_dirs(&middle));
+            subproof.extend(restproof);
+            return subproof;
+        }
     }
 
     fn rewrite_part<N: Analysis<L>>(
@@ -1447,6 +1546,78 @@ impl<L: Language> History<L> {
         }
     }
 
+    fn prove_one_step_simple<N: Analysis<L>>(
+        &self,
+        egraph: &mut EGraph<L, N>,
+        rules: &[&Rewrite<L, N>],
+        left_in: Rc<NodeExpr<L>>,
+        connection: &RewriteConnection<L>,
+        seen_memo: SeenMemo<L>,
+        is_backwards: bool,
+    ) -> Proof<L> {
+        let left = Rc::new(left_in.remove_rewrite_dirs());
+        let mut direction = connection.is_direction_forward;
+        if is_backwards {
+            direction = !direction;
+        }
+
+        let mut left_index = connection.prev;
+        if is_backwards {
+            left_index = connection.next;
+        }
+
+        let mut sast = match &connection.rule_ref {
+            RuleReference::Index(i) => rules[*i]
+                .searcher
+                .get_ast()
+                .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
+            RuleReference::Pattern((left, _right, _reaon)) => &left,
+            RuleReference::Congruence(_l, _r) => return vec![left], // shouldn't happen
+        };
+
+        let mut rast = match &connection.rule_ref {
+            RuleReference::Index(i) => rules[*i]
+                .applier
+                .get_ast()
+                .unwrap_or_else(|| panic!("Applier must implement get_ast function")),
+            RuleReference::Pattern((_left, right, _reaon)) => right,
+            RuleReference::Congruence(_l, _r) => return vec![left], // shouldn't happen
+        };
+
+        if !direction {
+            std::mem::swap(&mut sast, &mut rast);
+        }
+
+        let mut search_pattern =
+            NodeExpr::from_pattern_ast::<N>(self, egraph, sast, Some(&connection.subst), None);
+
+        let middle = Rc::new(self.build_term_age_0(egraph, left_index));
+
+        let mut proof = self.prove(egraph, rules, left_in, middle.clone(), seen_memo.clone());
+        let mut ground_to_search = self.prove(egraph, rules, middle, Rc::new(search_pattern), seen_memo);
+        let latest = ground_to_search.pop().unwrap();
+        let mut next = Rc::new(latest.clone().remove_rewrite_dirs()).rewrite::<N>(
+            self,
+            egraph,
+            sast,
+            rast,
+            Some(&connection.subst),
+        );
+        let mut newlink = unwrap_or_clone(latest.clone());
+        newlink.rule_ref = connection.rule_ref.clone();
+        newlink.is_direction_forward = direction;
+        if direction {
+            newlink.is_rewritten_forward = true;
+        } else {
+            next.is_rewritten_backwards = true;
+        }
+        ground_to_search.push(Rc::new(newlink));
+        ground_to_search.push(Rc::new(next));
+        ground_to_search[0] = Rc::new(ground_to_search[0].combine_dirs(&proof.pop().unwrap()));
+        proof.extend(ground_to_search);
+        proof
+    }
+
     fn prove_one_step<N: Analysis<L>>(
         &self,
         egraph: &mut EGraph<L, N>,
@@ -1456,6 +1627,9 @@ impl<L: Language> History<L> {
         seen_memo: SeenMemo<L>,
         is_backwards: bool,
     ) -> Proof<L> {
+        if !self.age_optimization_enabled {
+            return self.prove_one_step_simple(egraph, rules, left_in, connection, seen_memo, is_backwards);
+        }
         // returns a new var_memo
         let left = Rc::new(left_in.remove_rewrite_dirs());
         let varpat = "?a".parse::<PatternAst<L>>().unwrap();
@@ -1558,7 +1732,7 @@ impl<L: Language> History<L> {
             search_pattern = new_search_pattern;
         }
 
-        let mut proof = self.find_proof_paths(
+        let mut proof = self.prove(
             egraph,
             rules,
             left.clone(),
